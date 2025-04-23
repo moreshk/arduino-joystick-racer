@@ -47,7 +47,7 @@
     #score {
       position: absolute;
       top: 10px;
-      right: 10px;
+      left: 350px;
       color: #FFD700;
       font-size: 24px;
       z-index: 10;
@@ -75,7 +75,7 @@
     #controls {
       position: fixed;
       top: 20px;
-      right: 10px;
+      right: 20px;
       color: #FFD700;
       z-index: 10;
       display: flex;
@@ -262,23 +262,23 @@
       { x: 0, y: 0, width: 40, height: 600 },
       { x: 760, y: 0, width: 40, height: 600 },
       
-      // Inner walls - horizontal
-      { x: 120, y: 120, width: 200, height: 40 },
-      { x: 400, y: 120, width: 280, height: 40 },
-      { x: 120, y: 240, width: 160, height: 40 }, // Modified width to create path
-      { x: 400, y: 240, width: 280, height: 40 },
-      { x: 120, y: 360, width: 560, height: 40 },
-      { x: 120, y: 480, width: 160, height: 40 }, // Modified width to create path
-      { x: 400, y: 480, width: 280, height: 40 },
+      // Inner walls - horizontal - Modified to ensure all areas are accessible with wider passages
+      { x: 120, y: 120, width: 140, height: 40 },  // Further reduced width
+      { x: 340, y: 120, width: 260, height: 40 },  // Increased gap between walls
+      { x: 120, y: 240, width: 100, height: 40 },  // Further reduced width
+      { x: 340, y: 240, width: 260, height: 40 },  // Increased gap between walls
+      { x: 120, y: 360, width: 520, height: 40 },  // Reduced width
+      { x: 120, y: 480, width: 100, height: 40 },  // Further reduced width
+      { x: 340, y: 480, width: 260, height: 40 },  // Increased gap between walls
       
-      // Inner walls - vertical
-      { x: 120, y: 120, width: 40, height: 400 },
-      { x: 280, y: 120, width: 40, height: 120 }, // Modified height to create path
-      { x: 400, y: 120, width: 40, height: 120 }, // Modified height to create path
-      { x: 640, y: 120, width: 40, height: 120 }, // Modified height to create path
-      { x: 280, y: 400, width: 40, height: 120 }, // Modified y-position to create path
-      { x: 400, y: 400, width: 40, height: 120 }, // Modified y-position to create path
-      { x: 640, y: 400, width: 40, height: 120 }  // Modified y-position to create path
+      // Inner walls - vertical - Modified for wider passages
+      { x: 120, y: 120, width: 40, height: 140 },  // Further reduced height
+      { x: 280, y: 120, width: 40, height: 80 },   // Further reduced height
+      { x: 340, y: 120, width: 40, height: 80 },   // Adjusted position and height
+      { x: 640, y: 120, width: 40, height: 80 },   // Further reduced height
+      { x: 280, y: 440, width: 40, height: 80 },   // Adjusted position and height
+      { x: 340, y: 440, width: 40, height: 80 },   // Adjusted position and height
+      { x: 640, y: 440, width: 40, height: 80 }    // Adjusted position and height
     ];
     
     // Dots for Pacman to eat
