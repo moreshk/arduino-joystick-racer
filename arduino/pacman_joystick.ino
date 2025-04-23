@@ -24,12 +24,18 @@ int buttonState = 0;
 bool buttonPressed = false;
 
 // Variables for smoothing readings
-const int numReadings = 5;
+const int numReadings = 3;  // Reduced from 5 to 3 for more responsive control
 int xReadings[numReadings];
 int yReadings[numReadings];
 int readIndex = 0;
 int xTotal = 0;
 int yTotal = 0;
+
+// Variables for joystick calibration
+int xCenter = 512;
+int yCenter = 512;
+bool calibrated = false;
+const int calibrationSamples = 10;
 
 void setup() {
   // Initialize serial communication at 9600 baud
@@ -43,6 +49,28 @@ void setup() {
     xReadings[i] = 0;
     yReadings[i] = 0;
   }
+  
+  // Wait for the joystick to stabilize
+  delay(100);
+  
+  // Simple auto-calibration
+  calibrateJoystick();
+}
+
+void calibrateJoystick() {
+  // Take multiple readings to find the center position
+  int xSum = 0;
+  int ySum = 0;
+  
+  for (int i = 0; i < calibrationSamples; i++) {
+    xSum += analogRead(JOY_X);
+    ySum += analogRead(JOY_Y);
+    delay(10);
+  }
+  
+  xCenter = xSum / calibrationSamples;
+  yCenter = ySum / calibrationSamples;
+  calibrated = true;
 }
 
 void loop() {
@@ -64,6 +92,17 @@ void loop() {
   // Calculate the average
   joystickX = xTotal / numReadings;
   joystickY = yTotal / numReadings;
+  
+  // Apply calibration if available
+  if (calibrated) {
+    // Adjust readings based on calibrated center
+    joystickX = map(joystickX, xCenter - 512, xCenter + 512, 0, 1023);
+    joystickY = map(joystickY, yCenter - 512, yCenter + 512, 0, 1023);
+    
+    // Constrain to valid range
+    joystickX = constrain(joystickX, 0, 1023);
+    joystickY = constrain(joystickY, 0, 1023);
+  }
   
   // Read button state (LOW when pressed due to pull-up resistor)
   int currentButtonState = digitalRead(JOY_BTN);
@@ -88,5 +127,5 @@ void loop() {
   Serial.println(buttonPressed ? 1 : 0);
   
   // Small delay to prevent flooding the serial port
-  delay(20); // 50Hz update rate
+  delay(30); // Changed from 20ms to 30ms (33Hz update rate) for more consistent readings
 } 

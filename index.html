@@ -71,6 +71,70 @@
       font-size: 30px;
       z-index: 5;
     }
+    
+    #controls {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      color: #FFD700;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+    }
+    
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .control-label {
+      font-size: 16px;
+    }
+    
+    .control-btn {
+      padding: 5px 10px;
+      background-color: #FFD700;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      color: #000;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    
+    .control-btn:hover {
+      background-color: #FFC107;
+    }
+    
+    #pause-btn {
+      padding: 5px 10px;
+      background-color: #FFD700;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      color: #000;
+      font-family: inherit;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+    
+    #message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #FFD700;
+      font-size: 36px;
+      z-index: 15;
+      text-align: center;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 20px;
+      border-radius: 10px;
+      display: none;
+    }
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 </head>
@@ -80,6 +144,16 @@
     <div id="score">Score: 0</div>
     <div id="life">Lives: 3</div>
     <div id="loading">Loading...</div>
+    <div id="controls">
+      <div class="control-group">
+        <span class="control-label">Speed:</span>
+        <button class="control-btn" id="speed-down">-</button>
+        <span id="speed-value">Normal</span>
+        <button class="control-btn" id="speed-up">+</button>
+      </div>
+      <button id="pause-btn">Pause</button>
+    </div>
+    <div id="message">Paused<br><span style="font-size: 18px">Press Pause or Joystick Button to Resume</span></div>
     <canvas id="canvas" width="800" height="600"></canvas>
   </div>
 
@@ -90,15 +164,34 @@
     const scoreElement = document.getElementById('score');
     const lifeElement = document.getElementById('life');
     const loadingElement = document.getElementById('loading');
+    const messageElement = document.getElementById('message');
+    const speedValueElement = document.getElementById('speed-value');
     
     // Game state
     let score = 0;
     let lives = 3;
     let gameRunning = false;
     let gameOver = false;
+    let gamePaused = false;
+    
+    // Speed control
+    const speedLevels = [
+      { name: "Very Slow", factor: 0.5 },
+      { name: "Slow", factor: 0.75 },
+      { name: "Normal", factor: 1.0 },
+      { name: "Fast", factor: 1.25 },
+      { name: "Very Fast", factor: 1.5 }
+    ];
+    let currentSpeedIndex = 2; // Start at Normal speed
+    let speedFactor = speedLevels[currentSpeedIndex].factor;
+    
+    // Base speeds that will be multiplied by the speed factor
+    const BASE_PACMAN_SPEED = 1.5;
+    const BASE_GHOST_SPEEDS = [1, 0.9, 0.8, 0.7];
     
     // Joystick variables
     let joystickX = 0, joystickY = 0;
+    let joystickButton = 0;
     let joystickDirection = { x: 0, y: 0 };
     let reader;
     let buffer = '';
@@ -120,12 +213,12 @@
       x: 400,
       y: 300,
       radius: 20,
-      speed: 3,
+      speed: BASE_PACMAN_SPEED,
       angle: 0,
       direction: { x: 1, y: 0 },
       nextDirection: { x: 1, y: 0 },
       mouthOpen: 0,
-      mouthSpeed: 0.1
+      mouthSpeed: 0.04
     };
     
     // Create maze walls - simplified for this demo
@@ -162,10 +255,10 @@
     
     // Ghosts
     const ghosts = [
-      { x: 120, y: 120, color: 'red', speed: 2, direction: { x: 1, y: 0 }, state: 'normal' },
-      { x: 680, y: 120, color: 'pink', speed: 2, direction: { x: -1, y: 0 }, state: 'normal' },
-      { x: 120, y: 480, color: 'cyan', speed: 2, direction: { x: 1, y: 0 }, state: 'normal' },
-      { x: 680, y: 480, color: 'orange', speed: 2, direction: { x: -1, y: 0 }, state: 'normal' }
+      { x: 120, y: 120, color: 'red', speed: BASE_GHOST_SPEEDS[0], direction: { x: 1, y: 0 }, state: 'normal' },
+      { x: 680, y: 120, color: 'pink', speed: BASE_GHOST_SPEEDS[1], direction: { x: -1, y: 0 }, state: 'normal' },
+      { x: 120, y: 480, color: 'cyan', speed: BASE_GHOST_SPEEDS[2], direction: { x: 1, y: 0 }, state: 'normal' },
+      { x: 680, y: 480, color: 'orange', speed: BASE_GHOST_SPEEDS[3], direction: { x: -1, y: 0 }, state: 'normal' }
     ];
     
     // Power pills
@@ -241,7 +334,7 @@
     // Update direction based on joystick input
     function updateJoystickDirection() {
       // Threshold to detect significant joystick movement
-      const threshold = 0.3;
+      const threshold = 0.2;
       
       // Reset the direction object
       joystickDirection = { x: 0, y: 0 };
@@ -271,8 +364,11 @@
     
     // Move Pacman
     function movePacman() {
-      let nextX = pacman.x + pacman.direction.x * pacman.speed;
-      let nextY = pacman.y + pacman.direction.y * pacman.speed;
+      // Apply speed factor to Pacman's movement
+      const adjustedSpeed = pacman.speed * speedFactor;
+      
+      let nextX = pacman.x + pacman.direction.x * adjustedSpeed;
+      let nextY = pacman.y + pacman.direction.y * adjustedSpeed;
       
       // Check if Pacman can move in the current direction
       let canMove = true;
@@ -293,8 +389,8 @@
         pacman.y = nextY;
       } else {
         // If Pacman cannot move in the current direction, try to change to the next direction
-        const newDirNextX = pacman.x + pacman.nextDirection.x * pacman.speed;
-        const newDirNextY = pacman.y + pacman.nextDirection.y * pacman.speed;
+        const newDirNextX = pacman.x + pacman.nextDirection.x * adjustedSpeed;
+        const newDirNextY = pacman.y + pacman.nextDirection.y * adjustedSpeed;
         
         let canChangeDirection = true;
         for (const wall of walls) {
@@ -371,14 +467,17 @@
           }
         }
         
-        // Occasionally change direction randomly
-        if (Math.random() < 0.01) {
+        // Occasionally change direction randomly - increased probability for more movement
+        if (Math.random() < 0.03) {
           ghost.direction = getRandomDirection();
         }
         
-        // Move ghost
-        let nextX = ghost.x + ghost.direction.x * (ghost.state === 'vulnerable' ? ghost.speed * 0.5 : ghost.speed);
-        let nextY = ghost.y + ghost.direction.y * (ghost.state === 'vulnerable' ? ghost.speed * 0.5 : ghost.speed);
+        // Apply speed factor to ghost movement
+        const adjustedSpeed = ghost.speed * speedFactor * (ghost.state === 'vulnerable' ? 0.5 : 1);
+        
+        // Move ghost with the adjusted speed
+        let nextX = ghost.x + ghost.direction.x * adjustedSpeed;
+        let nextY = ghost.y + ghost.direction.y * adjustedSpeed;
         
         // Check for wall collisions
         let hitWall = false;
@@ -391,7 +490,37 @@
         
         if (hitWall) {
           // Change direction if hit a wall
-          ghost.direction = getRandomDirection();
+          // Try multiple directions until finding a valid one
+          let foundValidDirection = false;
+          let attempts = 0;
+          const maxAttempts = 4;  // Try all four directions
+          
+          while (!foundValidDirection && attempts < maxAttempts) {
+            attempts++;
+            ghost.direction = getRandomDirection();
+            
+            nextX = ghost.x + ghost.direction.x * adjustedSpeed;
+            nextY = ghost.y + ghost.direction.y * adjustedSpeed;
+            
+            // Check if the new direction is valid
+            let validDirection = true;
+            for (const wall of walls) {
+              if (circleRectCollision({ x: nextX, y: nextY }, wall, pacman.radius - 5)) {
+                validDirection = false;
+                break;
+              }
+            }
+            
+            if (validDirection) {
+              foundValidDirection = true;
+            }
+          }
+          
+          // If all directions are blocked, just stay put for this frame
+          if (!foundValidDirection) {
+            nextX = ghost.x;
+            nextY = ghost.y;
+          }
         } else {
           ghost.x = nextX;
           ghost.y = nextY;
@@ -621,7 +750,7 @@
     
     // Main game loop
     function gameLoop() {
-      if (!gameRunning || gameOver) return;
+      if (!gameRunning || gameOver || gamePaused) return;
       
       updateJoystickDirection();
       movePacman();
@@ -698,15 +827,25 @@
           for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed) {
-              const [xs, ys] = trimmed.split(',').map(Number);
-              if (!isNaN(xs) && !isNaN(ys)) {
+              const parts = trimmed.split(',').map(Number);
+              // Check if we have at least X and Y values
+              if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
                 // normalize to -1…1
-                joystickX = (xs - 512) / 512;
-                joystickY = (ys - 512) / 512;
+                joystickX = (parts[0] - 512) / 512;
+                joystickY = (parts[1] - 512) / 512;
                 
                 // Apply a deadzone to prevent small joystick noise
-                if (Math.abs(joystickX) < 0.05) joystickX = 0;
-                if (Math.abs(joystickY) < 0.05) joystickY = 0;
+                if (Math.abs(joystickX) < 0.08) joystickX = 0;
+                if (Math.abs(joystickY) < 0.08) joystickY = 0;
+                
+                // Check for button press if available
+                if (parts.length >= 3 && !isNaN(parts[2])) {
+                  // If button state changed from 0 to 1, toggle pause
+                  if (parts[2] === 1 && joystickButton === 0) {
+                    togglePause();
+                  }
+                  joystickButton = parts[2];
+                }
               }
             }
           }
@@ -733,6 +872,34 @@
       container.style.width = `${newWidth}px`;
       container.style.height = `${newHeight}px`;
     });
+    
+    // Function to toggle game pause state
+    function togglePause() {
+      gamePaused = !gamePaused;
+      
+      if (gamePaused) {
+        messageElement.style.display = 'block';
+      } else {
+        messageElement.style.display = 'none';
+        // Restart the game loop if unpausing
+        if (gameRunning && !gameOver) {
+          gameLoop();
+        }
+      }
+    }
+    
+    // Function to change game speed
+    function changeSpeed(direction) {
+      // direction: 1 = faster, -1 = slower
+      currentSpeedIndex = Math.max(0, Math.min(speedLevels.length - 1, currentSpeedIndex + direction));
+      speedFactor = speedLevels[currentSpeedIndex].factor;
+      speedValueElement.textContent = speedLevels[currentSpeedIndex].name;
+    }
+    
+    // Set up control buttons
+    document.getElementById('speed-up').addEventListener('click', () => changeSpeed(1));
+    document.getElementById('speed-down').addEventListener('click', () => changeSpeed(-1));
+    document.getElementById('pause-btn').addEventListener('click', togglePause);
     
     // Start the game
     initGame();
