@@ -174,20 +174,25 @@
     let gameOver = false;
     let gamePaused = false;
     
+    // Frame rate control
+    const TARGET_FPS = 30;  // Lower FPS for more controlled gameplay
+    let lastFrameTime = 0;
+    const MIN_FRAME_TIME = 1000 / TARGET_FPS;
+    
     // Speed control
     const speedLevels = [
-      { name: "Very Slow", factor: 0.5 },
-      { name: "Slow", factor: 0.75 },
-      { name: "Normal", factor: 1.0 },
-      { name: "Fast", factor: 1.25 },
-      { name: "Very Fast", factor: 1.5 }
+      { name: "Very Slow", factor: 0.25 },
+      { name: "Slow", factor: 0.4 },
+      { name: "Normal", factor: 0.6 },
+      { name: "Fast", factor: 0.8 },
+      { name: "Very Fast", factor: 1.0 }
     ];
-    let currentSpeedIndex = 2; // Start at Normal speed
+    let currentSpeedIndex = 0; // Start at Very Slow speed
     let speedFactor = speedLevels[currentSpeedIndex].factor;
     
     // Base speeds that will be multiplied by the speed factor
-    const BASE_PACMAN_SPEED = 1.5;
-    const BASE_GHOST_SPEEDS = [1, 0.9, 0.8, 0.7];
+    const BASE_PACMAN_SPEED = 1.0;  // Reduced from 1.5 to 1.0
+    const BASE_GHOST_SPEEDS = [0.5, 0.45, 0.4, 0.35];  // Reduced ghost speeds by half
     
     // Joystick variables
     let joystickX = 0, joystickY = 0;
@@ -218,7 +223,7 @@
       direction: { x: 1, y: 0 },
       nextDirection: { x: 1, y: 0 },
       mouthOpen: 0,
-      mouthSpeed: 0.04
+      mouthSpeed: 0.02  // Reduced from 0.04 to 0.02 for slower animation
     };
     
     // Create maze walls - simplified for this demo
@@ -344,15 +349,19 @@
         // Horizontal movement has priority
         if (joystickX > threshold) {
           joystickDirection.x = 1;
+          joystickDirection.y = 0;  // Ensure only one direction
         } else if (joystickX < -threshold) {
           joystickDirection.x = -1;
+          joystickDirection.y = 0;  // Ensure only one direction
         }
       } else {
         // Vertical movement has priority
         if (joystickY > threshold) {
           joystickDirection.y = 1;
+          joystickDirection.x = 0;  // Ensure only one direction
         } else if (joystickY < -threshold) {
           joystickDirection.y = -1;
+          joystickDirection.x = 0;  // Ensure only one direction
         }
       }
       
@@ -367,6 +376,7 @@
       // Apply speed factor to Pacman's movement
       const adjustedSpeed = pacman.speed * speedFactor;
       
+      // Calculate next position
       let nextX = pacman.x + pacman.direction.x * adjustedSpeed;
       let nextY = pacman.y + pacman.direction.y * adjustedSpeed;
       
@@ -467,9 +477,44 @@
           }
         }
         
-        // Occasionally change direction randomly - increased probability for more movement
-        if (Math.random() < 0.03) {
-          ghost.direction = getRandomDirection();
+        // Decide whether to chase Pacman or move randomly
+        if (ghost.state === 'normal' && Math.random() < 0.02) {  // 2% chance per frame to update direction
+          // 60% chance to chase Pacman, 40% chance for random movement
+          if (Math.random() < 0.6) {
+            // Chase Pacman - determine best direction to move towards Pacman
+            let bestDirection = { x: 0, y: 0 };
+            
+            // Calculate direction to Pacman
+            const dx = pacman.x - ghost.x;
+            const dy = pacman.y - ghost.y;
+            
+            // Choose primary direction based on distance
+            if (Math.abs(dx) > Math.abs(dy)) {
+              // Horizontal distance is greater
+              bestDirection.x = dx > 0 ? 1 : -1;
+              bestDirection.y = 0;
+            } else {
+              // Vertical distance is greater
+              bestDirection.x = 0;
+              bestDirection.y = dy > 0 ? 1 : -1;
+            }
+            
+            ghost.direction = bestDirection;
+          } else {
+            // Random movement
+            ghost.direction = getRandomDirection();
+          }
+        } else if (ghost.state === 'vulnerable' && Math.random() < 0.03) {  // Vulnerable ghosts change direction more often
+          // When vulnerable, try to move away from Pacman
+          const dx = pacman.x - ghost.x;
+          const dy = pacman.y - ghost.y;
+          
+          // Choose direction away from Pacman
+          if (Math.abs(dx) > Math.abs(dy)) {
+            ghost.direction = { x: dx > 0 ? -1 : 1, y: 0 };
+          } else {
+            ghost.direction = { x: 0, y: dy > 0 ? -1 : 1 };
+          }
         }
         
         // Apply speed factor to ghost movement
@@ -566,25 +611,29 @@
       pacman.direction = { x: 1, y: 0 };
       pacman.nextDirection = { x: 1, y: 0 };
       
-      // Reset ghost positions
+      // Reset ghost positions and directions
       ghosts[0].x = 120;
       ghosts[0].y = 120;
+      ghosts[0].direction = { x: 1, y: 0 };
       
       ghosts[1].x = 680;
       ghosts[1].y = 120;
+      ghosts[1].direction = { x: -1, y: 0 };
       
       ghosts[2].x = 120;
       ghosts[2].y = 480;
+      ghosts[2].direction = { x: 1, y: 0 };
       
       ghosts[3].x = 680;
       ghosts[3].y = 480;
+      ghosts[3].direction = { x: -1, y: 0 };
       
       // Short pause to acknowledge death
       gameRunning = false;
       setTimeout(() => {
         gameRunning = true;
-        gameLoop();
-      }, 1000);
+        // No need to call gameLoop here since requestAnimationFrame is already running
+      }, 1500);  // Increased from 1000 to 1500ms for a longer pause
     }
     
     // Draw the game
@@ -749,8 +798,21 @@
     }
     
     // Main game loop
-    function gameLoop() {
-      if (!gameRunning || gameOver || gamePaused) return;
+    function gameLoop(timestamp) {
+      if (!gameRunning || gameOver || gamePaused) {
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      
+      // Limit frame rate for more consistent speed
+      const elapsed = timestamp - lastFrameTime;
+      if (elapsed < MIN_FRAME_TIME) {
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      
+      // Update last frame time
+      lastFrameTime = timestamp;
       
       updateJoystickDirection();
       movePacman();
@@ -770,7 +832,9 @@
         loadingElement.style.display = 'none';
         gameRunning = true;
         playSound('start');
-        gameLoop();
+        
+        // Start game loop with timestamp
+        requestAnimationFrame(gameLoop);
       });
     }
     
@@ -830,13 +894,13 @@
               const parts = trimmed.split(',').map(Number);
               // Check if we have at least X and Y values
               if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                // normalize to -1…1
-                joystickX = (parts[0] - 512) / 512;
-                joystickY = (parts[1] - 512) / 512;
+                // normalize to -1…1 with lower sensitivity
+                const newJoystickX = (parts[0] - 512) / 512 * 0.8;
+                const newJoystickY = (parts[1] - 512) / 512 * 0.8;
                 
-                // Apply a deadzone to prevent small joystick noise
-                if (Math.abs(joystickX) < 0.08) joystickX = 0;
-                if (Math.abs(joystickY) < 0.08) joystickY = 0;
+                // Apply a larger deadzone to prevent small joystick noise
+                joystickX = Math.abs(newJoystickX) < 0.15 ? 0 : newJoystickX;
+                joystickY = Math.abs(newJoystickY) < 0.15 ? 0 : newJoystickY;
                 
                 // Check for button press if available
                 if (parts.length >= 3 && !isNaN(parts[2])) {
@@ -900,6 +964,39 @@
     document.getElementById('speed-up').addEventListener('click', () => changeSpeed(1));
     document.getElementById('speed-down').addEventListener('click', () => changeSpeed(-1));
     document.getElementById('pause-btn').addEventListener('click', togglePause);
+    
+    // Add keyboard controls for testing without Arduino
+    window.addEventListener('keydown', (e) => {
+      if (gameRunning && !gamePaused) {
+        switch (e.key) {
+          case 'ArrowUp':
+            pacman.nextDirection = { x: 0, y: -1 };
+            break;
+          case 'ArrowDown':
+            pacman.nextDirection = { x: 0, y: 1 };
+            break;
+          case 'ArrowLeft':
+            pacman.nextDirection = { x: -1, y: 0 };
+            break;
+          case 'ArrowRight':
+            pacman.nextDirection = { x: 1, y: 0 };
+            break;
+          case ' ':  // Space bar
+            togglePause();
+            break;
+          case '+':
+          case '=':
+            changeSpeed(1);
+            break;
+          case '-':
+          case '_':
+            changeSpeed(-1);
+            break;
+        }
+      } else if (gamePaused && e.key === ' ') {
+        togglePause();
+      }
+    });
     
     // Start the game
     initGame();
