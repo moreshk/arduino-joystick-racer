@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Three.js Joystick Cube Demo</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #connect {
+      position: absolute;
+      top: 10px; left: 10px;
+      padding: 8px 16px;
+      font-size: 16px;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <button id="connect">Connect Joystick</button>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js';
+
+    // — Joystick variables —
+    let joystickX = 0, joystickY = 0;
+    let targetRotationX = 0, targetRotationY = 0;
+    let reader;
+    let buffer = '';
+
+    // — Ask user to pick the Arduino serial port —
+    async function connectSerial() {
+      try {
+        const port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        const decoder = new TextDecoderStream();
+        port.readable.pipeTo(decoder.writable);
+        reader = decoder.readable.getReader();
+        console.log('Serial port opened');
+        readSerialData();
+      } catch(err) {
+        console.error('Serial connection failed:', err);
+      }
+    }
+    document.getElementById('connect').addEventListener('click', connectSerial);
+
+    // Handle serial data reading separately from animation loop
+    async function readSerialData() {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            reader.releaseLock();
+            break;
+          }
+          
+          // Add to buffer and process complete lines
+          buffer += value;
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // Keep the last incomplete line in buffer
+          
+          // Process complete lines
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) {
+              const [xs, ys] = trimmed.split(',').map(Number);
+              if (!isNaN(xs) && !isNaN(ys)) {
+                // normalize to -1…1
+                joystickX = (xs - 512) / 512;
+                joystickY = (ys - 512) / 512;
+                
+                // Apply a deadzone to prevent small joystick noise
+                if (Math.abs(joystickX) < 0.05) joystickX = 0;
+                if (Math.abs(joystickY) < 0.05) joystickY = 0;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error reading serial data:', error);
+      }
+    }
+
+    // — Three.js setup —
+    const scene    = new THREE.Scene();
+    const camera   = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Add a cube
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshNormalMaterial();
+    const cube     = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    // Keep camera fixed at a position where it can see the cube
+    camera.position.set(0, 0, 5);
+
+    // — Animation loop —
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Update rotation based on joystick - accumulate rotation when stick is moved
+      if (joystickX !== 0) {
+        targetRotationY += joystickX * 0.05;
+      }
+      
+      if (joystickY !== 0) {
+        targetRotationX += joystickY * 0.05;
+      }
+      
+      // Apply the rotation
+      cube.rotation.x = targetRotationX;
+      cube.rotation.y = targetRotationY;
+
+      // Render
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // — Handle window resize —
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
