@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pacman Sound Files</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f0f0f0;
+    }
+    
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #333;
+      padding-bottom: 10px;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    th {
+      background-color: #4CAF50;
+      color: white;
+    }
+    
+    tr:hover {
+      background-color: #f5f5f5;
+    }
+    
+    .status {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      margin-right: 10px;
+    }
+    
+    .found {
+      background-color: green;
+    }
+    
+    .missing {
+      background-color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>Pacman Sound Files</h1>
+  
+  <p>
+    This page displays the status of required sound files for the Pacman game and allows you to test them.
+  </p>
+  
+  <table>
+    <tr>
+      <th>Sound</th>
+      <th>Filename</th>
+      <th>Status</th>
+      <th>Action</th>
+    </tr>
+    <tr>
+      <td>Game Start</td>
+      <td>pacman_beginning.mp3</td>
+      <td id="status-beginning"><span class="status"></span></td>
+      <td><button onclick="playSound('pacman_beginning.mp3')">Test</button></td>
+    </tr>
+    <tr>
+      <td>Chomp (Eating Dots)</td>
+      <td>pacman_chomp.mp3</td>
+      <td id="status-chomp"><span class="status"></span></td>
+      <td><button onclick="playSound('pacman_chomp.mp3')">Test</button></td>
+    </tr>
+    <tr>
+      <td>Death</td>
+      <td>pacman_death.mp3</td>
+      <td id="status-death"><span class="status"></span></td>
+      <td><button onclick="playSound('pacman_death.mp3')">Test</button></td>
+    </tr>
+    <tr>
+      <td>Eat Ghost</td>
+      <td>pacman_eatghost.mp3</td>
+      <td id="status-eatghost"><span class="status"></span></td>
+      <td><button onclick="playSound('pacman_eatghost.mp3')">Test</button></td>
+    </tr>
+    <tr>
+      <td>Eat Fruit</td>
+      <td>pacman_eatfruit.mp3</td>
+      <td id="status-eatfruit"><span class="status"></span></td>
+      <td><button onclick="playSound('pacman_eatfruit.mp3')">Test</button></td>
+    </tr>
+    <tr>
+      <td>Power Pill</td>
+      <td>pacman_powerpill.mp3</td>
+      <td id="status-powerpill"><span class="status"></span></td>
+      <td><button onclick="playSound('pacman_powerpill.mp3')">Test</button></td>
+    </tr>
+  </table>
+  
+  <h2>Instructions</h2>
+  
+  <ol>
+    <li>Place all required sound files in this directory</li>
+    <li>Refresh this page to check their status</li>
+    <li>Click "Test" buttons to play individual sounds</li>
+  </ol>
+  
+  <p>
+    <strong>Note:</strong> If sound files are missing, the Pacman game will still run but without sound effects.
+  </p>
+  
+  <script>
+    // Check which files exist
+    const requiredSounds = [
+      'pacman_beginning.mp3',
+      'pacman_chomp.mp3',
+      'pacman_death.mp3',
+      'pacman_eatghost.mp3',
+      'pacman_eatfruit.mp3',
+      'pacman_powerpill.mp3'
+    ];
+    
+    // Function to check if file exists (simplified for browser)
+    function checkFileExists(url, callback) {
+      fetch(url, { method: 'HEAD' })
+        .then(response => callback(response.ok))
+        .catch(() => callback(false));
+    }
+    
+    // Function to update status indicators
+    function updateStatus(file, exists) {
+      const id = 'status-' + file.replace('pacman_', '').replace('.mp3', '');
+      const element = document.getElementById(id);
+      if (element) {
+        const statusIcon = element.querySelector('.status');
+        statusIcon.className = 'status ' + (exists ? 'found' : 'missing');
+        element.innerHTML = statusIcon.outerHTML + (exists ? 'Found' : 'Missing');
+      }
+    }
+    
+    // Check all required sounds
+    requiredSounds.forEach(file => {
+      checkFileExists(file, (exists) => {
+        updateStatus(file, exists);
+      });
+    });
+    
+    // Function to play a sound
+    function playSound(file) {
+      const audio = new Audio(file);
+      audio.play().catch(error => {
+        console.error('Error playing sound:', error);
+        alert('Could not play sound: ' + file + '\nMake sure the file exists and is a valid audio file.');
+      });
+    }
+  </script>
+</body>
+</html> 
