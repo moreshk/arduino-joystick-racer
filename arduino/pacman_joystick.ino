@@ -24,7 +24,7 @@ int buttonState = 0;
 bool buttonPressed = false;
 
 // Variables for smoothing readings
-const int numReadings = 5;  // Increased from 3 to 5 for smoother control
+const int numReadings = 3;  // Reduced from 5 to 3 for more responsive control
 int xReadings[numReadings];
 int yReadings[numReadings];
 int readIndex = 0;
@@ -35,12 +35,15 @@ int yTotal = 0;
 int xCenter = 512;
 int yCenter = 512;
 bool calibrated = false;
-const int calibrationSamples = 20;  // Increased from 10 to 20 for better calibration
+const int calibrationSamples = 10; // Reduced from 20 to 10 for faster startup
 
 // Last sent values for change detection
 int lastJoystickX = 0;
 int lastJoystickY = 0;
 bool valueChanged = false;
+
+// Debug flag to print calibration values
+bool debugCalibration = true;
 
 void setup() {
   // Initialize serial communication at 9600 baud
@@ -56,10 +59,18 @@ void setup() {
   }
   
   // Wait for the joystick to stabilize
-  delay(200);  // Increased from 100 to 200ms
+  delay(100);  // Reduced from 200 to 100ms
   
   // Simple auto-calibration
   calibrateJoystick();
+  
+  // Show calibration values for debugging
+  if (debugCalibration) {
+    Serial.print("CALIBRATION: X=");
+    Serial.print(xCenter);
+    Serial.print(", Y=");
+    Serial.println(yCenter);
+  }
 }
 
 void calibrateJoystick() {
@@ -70,7 +81,7 @@ void calibrateJoystick() {
   for (int i = 0; i < calibrationSamples; i++) {
     xSum += analogRead(JOY_X);
     ySum += analogRead(JOY_Y);
-    delay(20);  // Increased from 10 to 20ms
+    delay(10);  // Reduced from 20 to 10ms
   }
   
   xCenter = xSum / calibrationSamples;
@@ -108,13 +119,13 @@ void loop() {
     joystickX = constrain(joystickX, 0, 1023);
     joystickY = constrain(joystickY, 0, 1023);
     
-    // Apply dampening to further smooth movement
-    joystickX = (joystickX * 0.7) + (lastJoystickX * 0.3);
-    joystickY = (joystickY * 0.7) + (lastJoystickY * 0.3);
+    // Apply dampening to further smooth movement (less smoothing)
+    joystickX = (joystickX * 0.8) + (lastJoystickX * 0.2); // Changed from 0.7/0.3 to 0.8/0.2
+    joystickY = (joystickY * 0.8) + (lastJoystickY * 0.2); // Changed from 0.7/0.3 to 0.8/0.2
   }
   
   // Check if values have changed enough to send
-  if (abs(joystickX - lastJoystickX) > 10 || abs(joystickY - lastJoystickY) > 10) {
+  if (abs(joystickX - lastJoystickX) > 5 || abs(joystickY - lastJoystickY) > 5) { // Lowered from 10 to 5
     valueChanged = true;
     lastJoystickX = joystickX;
     lastJoystickY = joystickY;
@@ -138,7 +149,7 @@ void loop() {
   
   // Only send data when values have changed or occasionally
   static int sendCounter = 0;
-  if (valueChanged || sendCounter >= 5) {  // Send at least every 5 cycles
+  if (valueChanged || sendCounter >= 3) {  // Send more frequently - changed from 5 to 3
     // Send values as CSV string (format: "X,Y,BUTTON")
     // X and Y are analog values 0-1023
     // BUTTON is 1 when pressed, 0 when not pressed
@@ -154,5 +165,5 @@ void loop() {
   }
   
   // Small delay to prevent flooding the serial port
-  delay(50); // Changed from 30ms to 50ms (20Hz update rate) for even more controlled response
+  delay(25); // Changed from 50ms to 25ms (40Hz update rate) for more responsive control
 } 

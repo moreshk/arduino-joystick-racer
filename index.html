@@ -73,8 +73,8 @@
     }
     
     #controls {
-      position: absolute;
-      bottom: 10px;
+      position: fixed;
+      top: 20px;
       right: 10px;
       color: #FFD700;
       z-index: 10;
@@ -82,6 +82,9 @@
       flex-direction: column;
       align-items: flex-end;
       gap: 5px;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 10px;
+      border-radius: 5px;
     }
     
     .control-group {
@@ -135,27 +138,44 @@
       border-radius: 10px;
       display: none;
     }
+    
+    #debug {
+      position: fixed;
+      bottom: 20px;
+      right: 10px;
+      color: #FFD700;
+      font-size: 12px;
+      z-index: 10;
+      text-align: right;
+      font-family: monospace;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 5px;
+      border-radius: 3px;
+      display: none;
+    }
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="game-container">
-    <button id="connect">Connect Joystick</button>
     <div id="score">Score: 0</div>
     <div id="life">Lives: 3</div>
     <div id="loading">Loading...</div>
-    <div id="controls">
-      <div class="control-group">
-        <span class="control-label">Speed:</span>
-        <button class="control-btn" id="speed-down">-</button>
-        <span id="speed-value">Normal</span>
-        <button class="control-btn" id="speed-up">+</button>
-      </div>
-      <button id="pause-btn">Pause</button>
-    </div>
     <div id="message">Paused<br><span style="font-size: 18px">Press Pause or Joystick Button to Resume</span></div>
     <canvas id="canvas" width="800" height="600"></canvas>
   </div>
+  
+  <div id="controls">
+    <div class="control-group">
+      <span class="control-label">Speed:</span>
+      <button class="control-btn" id="speed-down">-</button>
+      <span id="speed-value">Normal</span>
+      <button class="control-btn" id="speed-up">+</button>
+    </div>
+    <button id="pause-btn">Pause</button>
+  </div>
+  
+  <div id="debug">Joystick: X: 0.00, Y: 0.00<br>Direction: none</div>
 
   <script>
     // Game canvas setup
@@ -173,26 +193,34 @@
     let gameRunning = false;
     let gameOver = false;
     let gamePaused = false;
+    let debugMode = true;  // Enable debug display
+    
+    // Ghost stuck detection
+    const ghostStuckDetection = {
+      checkInterval: 100, // Check every 100 frames
+      counter: 0,
+      lastPositions: []
+    };
     
     // Frame rate control
-    const TARGET_FPS = 30;  // Lower FPS for more controlled gameplay
+    const TARGET_FPS = 60;  // Increased from 30 to 60 for smoother gameplay
     let lastFrameTime = 0;
     const MIN_FRAME_TIME = 1000 / TARGET_FPS;
     
     // Speed control
     const speedLevels = [
-      { name: "Very Slow", factor: 0.25 },
-      { name: "Slow", factor: 0.4 },
-      { name: "Normal", factor: 0.6 },
-      { name: "Fast", factor: 0.8 },
-      { name: "Very Fast", factor: 1.0 }
+      { name: "Very Slow", factor: 0.5 },
+      { name: "Slow", factor: 0.75 },
+      { name: "Normal", factor: 1.0 },
+      { name: "Fast", factor: 1.25 },
+      { name: "Very Fast", factor: 1.5 }
     ];
-    let currentSpeedIndex = 0; // Start at Very Slow speed
+    let currentSpeedIndex = 2; // Start at Normal speed
     let speedFactor = speedLevels[currentSpeedIndex].factor;
     
     // Base speeds that will be multiplied by the speed factor
-    const BASE_PACMAN_SPEED = 1.0;  // Reduced from 1.5 to 1.0
-    const BASE_GHOST_SPEEDS = [0.5, 0.45, 0.4, 0.35];  // Reduced ghost speeds by half
+    const BASE_PACMAN_SPEED = 3.5;  // Increased from 2.0 to 3.5
+    const BASE_GHOST_SPEEDS = [4.0, 4.0, 3.8, 3.8];  // Increased ghost speeds further
     
     // Joystick variables
     let joystickX = 0, joystickY = 0;
@@ -203,11 +231,11 @@
     
     // Sound effects
     const audioPaths = {
-      chomp: 'sounds/pacman_chomp.mp3',
-      death: 'sounds/pacman_death.mp3',
-      eatGhost: 'sounds/pacman_eatghost.mp3',
-      eatFruit: 'sounds/pacman_eatfruit.mp3',
-      powerPill: 'sounds/pacman_powerpill.mp3',
+      chomp: 'sounds/PacManAdvancedSounds/3_soundFood.wav',
+      death: 'sounds/PacManAdvancedSounds/1_soundDead.wav',
+      eatGhost: 'sounds/PacManAdvancedSounds/2_soundGhost.wav',
+      powerPill: 'sounds/PacManAdvancedSounds/4_soundPower.wav',
+      win: 'sounds/PacManAdvancedSounds/5_soundWin.wav', // Added win sound
       start: 'sounds/pacman_beginning.mp3'
     };
     
@@ -217,13 +245,13 @@
     const pacman = {
       x: 400,
       y: 300,
-      radius: 20,
+      radius: 16,  // Reduced from 20 to 16 to fit through narrower corridors
       speed: BASE_PACMAN_SPEED,
       angle: 0,
       direction: { x: 1, y: 0 },
       nextDirection: { x: 1, y: 0 },
       mouthOpen: 0,
-      mouthSpeed: 0.02  // Reduced from 0.04 to 0.02 for slower animation
+      mouthSpeed: 0.06  // Increased from 0.02 to 0.06 for faster animation
     };
     
     // Create maze walls - simplified for this demo
@@ -237,20 +265,20 @@
       // Inner walls - horizontal
       { x: 120, y: 120, width: 200, height: 40 },
       { x: 400, y: 120, width: 280, height: 40 },
-      { x: 120, y: 240, width: 200, height: 40 },
+      { x: 120, y: 240, width: 160, height: 40 }, // Modified width to create path
       { x: 400, y: 240, width: 280, height: 40 },
       { x: 120, y: 360, width: 560, height: 40 },
-      { x: 120, y: 480, width: 200, height: 40 },
+      { x: 120, y: 480, width: 160, height: 40 }, // Modified width to create path
       { x: 400, y: 480, width: 280, height: 40 },
       
       // Inner walls - vertical
       { x: 120, y: 120, width: 40, height: 400 },
-      { x: 280, y: 120, width: 40, height: 160 },
-      { x: 400, y: 120, width: 40, height: 160 },
-      { x: 640, y: 120, width: 40, height: 160 },
-      { x: 280, y: 360, width: 40, height: 160 },
-      { x: 400, y: 360, width: 40, height: 160 },
-      { x: 640, y: 360, width: 40, height: 160 }
+      { x: 280, y: 120, width: 40, height: 120 }, // Modified height to create path
+      { x: 400, y: 120, width: 40, height: 120 }, // Modified height to create path
+      { x: 640, y: 120, width: 40, height: 120 }, // Modified height to create path
+      { x: 280, y: 400, width: 40, height: 120 }, // Modified y-position to create path
+      { x: 400, y: 400, width: 40, height: 120 }, // Modified y-position to create path
+      { x: 640, y: 400, width: 40, height: 120 }  // Modified y-position to create path
     ];
     
     // Dots for Pacman to eat
@@ -321,153 +349,129 @@
       return distance < radius1 + radius2;
     }
     
-    // Check collision between circle and rectangle (for wall collisions)
+    // Collision detection between circle and rectangle
     function circleRectCollision(circle, rect, radius) {
-      // Find the closest point in the rectangle to the circle
-      let closestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.width));
-      let closestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.height));
-      
-      // Calculate the distance between the circle's center and the closest point
-      const dx = circle.x - closestX;
-      const dy = circle.y - closestY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      // If the distance is less than the circle's radius, there is a collision
-      return distance < radius;
+        // Find the closest point to the circle within the rectangle
+        let closestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.width));
+        let closestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.height));
+        
+        // Calculate the distance between the circle's center and this closest point
+        let distanceX = circle.x - closestX;
+        let distanceY = circle.y - closestY;
+        
+        // If the distance is less than the circle's radius, an intersection occurs
+        let distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+        return distanceSquared < (radius * radius);
     }
     
     // Update direction based on joystick input
-    function updateJoystickDirection() {
-      // Threshold to detect significant joystick movement
-      const threshold = 0.2;
-      
-      // Reset the direction object
-      joystickDirection = { x: 0, y: 0 };
-      
-      // Determine the direction based on joystick values
-      if (Math.abs(joystickX) > Math.abs(joystickY)) {
-        // Horizontal movement has priority
-        if (joystickX > threshold) {
-          joystickDirection.x = 1;
-          joystickDirection.y = 0;  // Ensure only one direction
-        } else if (joystickX < -threshold) {
-          joystickDirection.x = -1;
-          joystickDirection.y = 0;  // Ensure only one direction
-        }
-      } else {
-        // Vertical movement has priority
-        if (joystickY > threshold) {
-          joystickDirection.y = 1;
-          joystickDirection.x = 0;  // Ensure only one direction
-        } else if (joystickY < -threshold) {
-          joystickDirection.y = -1;
-          joystickDirection.x = 0;  // Ensure only one direction
-        }
+    function updateJoystickDirection(x, y) {
+      // Update debug display with the current joystick values (only if debug element exists)
+      const debugElement = document.getElementById('debug');
+      if (debugElement) {
+        debugElement.innerHTML = 
+            `Joystick: X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}<br>` +
+            `Direction: ${JSON.stringify(pacman.direction).replace(/[{}"]/g, '')}`;
       }
       
-      // Update Pacman's next direction if joystick has input
-      if (joystickDirection.x !== 0 || joystickDirection.y !== 0) {
-        pacman.nextDirection = { ...joystickDirection };
+      // Use a smaller threshold for more responsive controls
+      const threshold = 0.15;
+      
+      // Determine direction from joystick input with priority given to larger axis
+      // X-axis is reversed: positive X means LEFT, negative X means RIGHT
+      if (Math.abs(x) > Math.abs(y)) {
+          // X-axis movement is dominant
+          if (x > threshold) {
+              pacman.nextDirection = { x: -1, y: 0 }; // Reversed: right stick = left movement
+          } else if (x < -threshold) {
+              pacman.nextDirection = { x: 1, y: 0 };  // Reversed: left stick = right movement
+          }
+      } else if (Math.abs(y) > Math.abs(x)) {
+          // Y-axis movement is dominant
+          if (y > threshold) {
+              pacman.nextDirection = { x: 0, y: 1 };
+          } else if (y < -threshold) {
+              pacman.nextDirection = { x: 0, y: -1 };
+          }
       }
     }
     
     // Move Pacman
     function movePacman() {
-      // Apply speed factor to Pacman's movement
-      const adjustedSpeed = pacman.speed * speedFactor;
+      if (gameRunning === false || gamePaused || gameOver) return;
       
-      // Calculate next position
-      let nextX = pacman.x + pacman.direction.x * adjustedSpeed;
-      let nextY = pacman.y + pacman.direction.y * adjustedSpeed;
-      
-      // Check if Pacman can move in the current direction
-      let canMove = true;
-      for (const wall of walls) {
-        if (circleRectCollision(
-          { x: nextX, y: nextY }, 
-          wall, 
-          pacman.radius - 1 // Slightly smaller to allow smoother movement
-        )) {
-          canMove = false;
-          break;
-        }
-      }
-      
-      // If Pacman can move in the current direction, update position
-      if (canMove) {
-        pacman.x = nextX;
-        pacman.y = nextY;
-      } else {
-        // If Pacman cannot move in the current direction, try to change to the next direction
-        const newDirNextX = pacman.x + pacman.nextDirection.x * adjustedSpeed;
-        const newDirNextY = pacman.y + pacman.nextDirection.y * adjustedSpeed;
-        
-        let canChangeDirection = true;
-        for (const wall of walls) {
-          if (circleRectCollision(
-            { x: newDirNextX, y: newDirNextY }, 
-            wall, 
-            pacman.radius - 1
-          )) {
-            canChangeDirection = false;
-            break;
-          }
-        }
-        
-        if (canChangeDirection) {
-          pacman.direction = { ...pacman.nextDirection };
-          pacman.x = newDirNextX;
-          pacman.y = newDirNextY;
-        }
-      }
-      
-      // Update angle based on direction
-      if (pacman.direction.x === 1) pacman.angle = 0;
-      else if (pacman.direction.x === -1) pacman.angle = Math.PI;
-      else if (pacman.direction.y === -1) pacman.angle = -Math.PI / 2;
-      else if (pacman.direction.y === 1) pacman.angle = Math.PI / 2;
-      
-      // Update mouth animation
-      pacman.mouthOpen += pacman.mouthSpeed;
-      if (pacman.mouthOpen > 0.5 || pacman.mouthOpen < 0) {
-        pacman.mouthSpeed = -pacman.mouthSpeed;
-      }
-      
-      // Check for dot collisions
-      for (let i = 0; i < dots.length; i++) {
-        if (dots[i].active && circleCollision(pacman, dots[i], pacman.radius, dotSize)) {
-          dots[i].active = false;
-          score += 10;
-          scoreElement.textContent = `Score: ${score}`;
-          playSound('chomp');
-        }
-      }
-      
-      // Check for power pill collisions
-      for (const pill of powerPills) {
-        if (pill.active && circleCollision(pacman, pill, pacman.radius, pill.radius)) {
-          pill.active = false;
-          score += 50;
-          scoreElement.textContent = `Score: ${score}`;
-          playSound('powerPill');
+      // Check if Pacman can turn at the current position
+      if (pacman.nextDirection && (pacman.nextDirection.x !== pacman.direction.x || pacman.nextDirection.y !== pacman.direction.y)) {
+          // Calculate test position with a small offset to allow earlier turns
+          let testX = pacman.x;
+          let testY = pacman.y;
           
-          // Make ghosts vulnerable
-          for (const ghost of ghosts) {
-            ghost.state = 'vulnerable';
-            ghost.vulnerableTimer = 500; // About 8 seconds at 60 FPS
+          // Add turn anticipation for more responsive controls
+          const turnOffset = speedFactor * 5;
+          
+          // Apply offset based on next direction to test
+          testX += pacman.nextDirection.x * turnOffset;
+          testY += pacman.nextDirection.y * turnOffset;
+          
+          // Test if we can move in the next direction from this position
+          let canTurn = true;
+          
+          // Calculate the next position
+          let nextX = testX + pacman.nextDirection.x * speedFactor * BASE_PACMAN_SPEED;
+          let nextY = testY + pacman.nextDirection.y * speedFactor * BASE_PACMAN_SPEED;
+          
+          // Check for wall collisions in the new direction
+          for (let wall of walls) {
+              if (circleRectCollision(
+                  { x: nextX, y: nextY }, wall, pacman.radius)) {
+                  canTurn = false;
+                  break;
+              }
           }
-        }
+          
+          // If we can turn, update the direction immediately
+          if (canTurn) {
+              pacman.direction = pacman.nextDirection;
+          }
       }
       
-      // Handle screen wrapping
-      if (pacman.x < -pacman.radius) pacman.x = canvas.width + pacman.radius;
-      if (pacman.x > canvas.width + pacman.radius) pacman.x = -pacman.radius;
-      if (pacman.y < -pacman.radius) pacman.y = canvas.height + pacman.radius;
-      if (pacman.y > canvas.height + pacman.radius) pacman.y = -pacman.radius;
+      // Move Pacman in the current direction
+      let speedX = pacman.direction.x * speedFactor * BASE_PACMAN_SPEED;
+      let speedY = pacman.direction.y * speedFactor * BASE_PACMAN_SPEED;
+      
+      // Test if the next position is valid (no wall collision)
+      let nextX = pacman.x + speedX;
+      let nextY = pacman.y + speedY;
+      let canMove = true;
+      
+      for (let wall of walls) {
+          if (circleRectCollision(
+              { x: nextX, y: nextY }, wall, pacman.radius)) {
+              canMove = false;
+              break;
+          }
+      }
+      
+      // Move if no collision
+      if (canMove) {
+          pacman.x = nextX;
+          pacman.y = nextY;
+      }
+      
+      // Check for dot collision and eating
+      checkDotCollision();
+      
+      // Check for power pellet collision
+      checkPowerPelletCollision();
+      
+      // Check for ghost collision
+      checkGhostCollision();
     }
     
     // Move ghosts
     function moveGhosts() {
+      if (!gameRunning || gamePaused || gameOver) return;
+      
       for (const ghost of ghosts) {
         // Reduce vulnerable timer if vulnerable
         if (ghost.state === 'vulnerable' && ghost.vulnerableTimer > 0) {
@@ -478,9 +482,10 @@
         }
         
         // Decide whether to chase Pacman or move randomly
-        if (ghost.state === 'normal' && Math.random() < 0.02) {  // 2% chance per frame to update direction
-          // 60% chance to chase Pacman, 40% chance for random movement
-          if (Math.random() < 0.6) {
+        // Increasing the probability to make direction decisions to 15%
+        if (ghost.state === 'normal' && Math.random() < 0.15) {  // Increased from 0.05 to 0.15 for more frequent direction changes
+          // 90% chance to chase Pacman, 10% chance for random movement
+          if (Math.random() < 0.9) {  // Increased from 0.8 to 0.9 to make ghosts even more aggressive
             // Chase Pacman - determine best direction to move towards Pacman
             let bestDirection = { x: 0, y: 0 };
             
@@ -499,12 +504,76 @@
               bestDirection.y = dy > 0 ? 1 : -1;
             }
             
+            // Check if the best direction is blocked by a wall
+            let nextX = ghost.x + bestDirection.x * ghost.speed * speedFactor;
+            let nextY = ghost.y + bestDirection.y * ghost.speed * speedFactor;
+            let bestDirectionBlocked = false;
+            
+            for (const wall of walls) {
+              if (circleRectCollision({ x: nextX, y: nextY }, wall, pacman.radius - 5)) {
+                bestDirectionBlocked = true;
+                break;
+              }
+            }
+            
+            // If the best direction is blocked, try the alternate axis
+            if (bestDirectionBlocked) {
+              if (bestDirection.x !== 0) {
+                // Try vertical axis
+                bestDirection.x = 0;
+                bestDirection.y = dy > 0 ? 1 : -1;
+              } else {
+                // Try horizontal axis
+                bestDirection.y = 0;
+                bestDirection.x = dx > 0 ? 1 : -1;
+              }
+              
+              // Check if alternate direction is also blocked
+              nextX = ghost.x + bestDirection.x * ghost.speed * speedFactor;
+              nextY = ghost.y + bestDirection.y * ghost.speed * speedFactor;
+              let alternateBlocked = false;
+              
+              for (const wall of walls) {
+                if (circleRectCollision({ x: nextX, y: nextY }, wall, pacman.radius - 5)) {
+                  alternateBlocked = true;
+                  break;
+                }
+              }
+              
+              // If alternate is also blocked, just pick a random valid direction
+              if (alternateBlocked) {
+                let validDirectionFound = false;
+                let attemptsCount = 0;
+                
+                while (!validDirectionFound && attemptsCount < 4) {
+                  attemptsCount++;
+                  const randomDir = getRandomDirection();
+                  
+                  nextX = ghost.x + randomDir.x * ghost.speed * speedFactor;
+                  nextY = ghost.y + randomDir.y * ghost.speed * speedFactor;
+                  
+                  let isBlocked = false;
+                  for (const wall of walls) {
+                    if (circleRectCollision({ x: nextX, y: nextY }, wall, pacman.radius - 5)) {
+                      isBlocked = true;
+                      break;
+                    }
+                  }
+                  
+                  if (!isBlocked) {
+                    bestDirection = randomDir;
+                    validDirectionFound = true;
+                  }
+                }
+              }
+            }
+            
             ghost.direction = bestDirection;
           } else {
             // Random movement
             ghost.direction = getRandomDirection();
           }
-        } else if (ghost.state === 'vulnerable' && Math.random() < 0.03) {  // Vulnerable ghosts change direction more often
+        } else if (ghost.state === 'vulnerable' && Math.random() < 0.12) {  // Increased from 0.08 to 0.12
           // When vulnerable, try to move away from Pacman
           const dx = pacman.x - ghost.x;
           const dy = pacman.y - ghost.y;
@@ -611,22 +680,26 @@
       pacman.direction = { x: 1, y: 0 };
       pacman.nextDirection = { x: 1, y: 0 };
       
-      // Reset ghost positions and directions
+      // Reset ghost positions and directions with better starting positions
       ghosts[0].x = 120;
       ghosts[0].y = 120;
       ghosts[0].direction = { x: 1, y: 0 };
+      ghosts[0].state = 'normal';
       
       ghosts[1].x = 680;
       ghosts[1].y = 120;
       ghosts[1].direction = { x: -1, y: 0 };
+      ghosts[1].state = 'normal';
       
       ghosts[2].x = 120;
       ghosts[2].y = 480;
       ghosts[2].direction = { x: 1, y: 0 };
+      ghosts[2].state = 'normal';
       
       ghosts[3].x = 680;
       ghosts[3].y = 480;
       ghosts[3].direction = { x: -1, y: 0 };
+      ghosts[3].state = 'normal';
       
       // Short pause to acknowledge death
       gameRunning = false;
@@ -765,6 +838,9 @@
         ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
         
         if (!gameOver) {
+          // Play win sound
+          playSound('win');
+          
           // Reset game for next level
           setTimeout(() => {
             createDots();
@@ -814,7 +890,83 @@
       // Update last frame time
       lastFrameTime = timestamp;
       
-      updateJoystickDirection();
+      // Animate Pacman's mouth
+      pacman.mouthOpen += pacman.mouthSpeed * speedFactor;
+      if (pacman.mouthOpen <= 0 || pacman.mouthOpen >= 0.5) {
+        pacman.mouthSpeed = -pacman.mouthSpeed;
+      }
+      
+      // Set Pacman's angle based on direction
+      if (pacman.direction.x === 1) pacman.angle = 0;
+      else if (pacman.direction.x === -1) pacman.angle = Math.PI;
+      else if (pacman.direction.y === -1) pacman.angle = -Math.PI/2;
+      else if (pacman.direction.y === 1) pacman.angle = Math.PI/2;
+      
+      // Detect if ghosts are stuck
+      ghostStuckDetection.counter++;
+      if (ghostStuckDetection.counter >= ghostStuckDetection.checkInterval) {
+        ghostStuckDetection.counter = 0;
+        
+        // Initialize last positions array if it's empty
+        if (ghostStuckDetection.lastPositions.length === 0) {
+          ghostStuckDetection.lastPositions = ghosts.map(ghost => ({
+            x: ghost.x,
+            y: ghost.y
+          }));
+        } else {
+          // Check if ghosts have moved
+          for (let i = 0; i < ghosts.length; i++) {
+            const dx = Math.abs(ghosts[i].x - ghostStuckDetection.lastPositions[i].x);
+            const dy = Math.abs(ghosts[i].y - ghostStuckDetection.lastPositions[i].y);
+            
+            // If ghost hasn't moved significantly
+            if (dx < 5 && dy < 5) {
+              // Ghost is stuck, give it a random direction
+              ghosts[i].direction = getRandomDirection();
+              
+              // Move ghost a bit in the new direction to unstick it
+              const unstickDistance = 10;
+              ghosts[i].x += ghosts[i].direction.x * unstickDistance;
+              ghosts[i].y += ghosts[i].direction.y * unstickDistance;
+              
+              // Ensure ghost is not inside a wall
+              let insideWall = false;
+              for (const wall of walls) {
+                if (circleRectCollision(
+                  { x: ghosts[i].x, y: ghosts[i].y }, 
+                  wall, 
+                  pacman.radius - 5
+                )) {
+                  insideWall = true;
+                  break;
+                }
+              }
+              
+              // If still inside a wall, reset to a safe location
+              if (insideWall) {
+                // Reset to one of the four corners
+                const safeLocations = [
+                  { x: 120, y: 120 },
+                  { x: 680, y: 120 },
+                  { x: 120, y: 480 },
+                  { x: 680, y: 480 }
+                ];
+                const randomIndex = Math.floor(Math.random() * safeLocations.length);
+                ghosts[i].x = safeLocations[randomIndex].x;
+                ghosts[i].y = safeLocations[randomIndex].y;
+              }
+            }
+            
+            // Update last position
+            ghostStuckDetection.lastPositions[i] = {
+              x: ghosts[i].x,
+              y: ghosts[i].y
+            };
+          }
+        }
+      }
+      
+      updateJoystickDirection(joystickX, joystickY);
       movePacman();
       moveGhosts();
       draw();
@@ -822,103 +974,355 @@
       requestAnimationFrame(gameLoop);
     }
     
-    // Initialize the game
-    function initGame() {
-      createDots();
-      loadSounds();
+    // Function to change game speed
+    function changeSpeed(direction) {
+      // direction: 1 = faster, -1 = slower
+      currentSpeedIndex = Math.max(0, Math.min(speedLevels.length - 1, currentSpeedIndex + direction));
+      speedFactor = speedLevels[currentSpeedIndex].factor;
+      speedValueElement.textContent = speedLevels[currentSpeedIndex].name;
       
-      // Start the game when assets are loaded
-      window.addEventListener('load', () => {
-        loadingElement.style.display = 'none';
-        gameRunning = true;
-        playSound('start');
-        
-        // Start game loop with timestamp
-        requestAnimationFrame(gameLoop);
-      });
-    }
-    
-    // — Ask user to pick the Arduino serial port —
-    async function connectSerial() {
-      try {
-        const port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 9600 });
-        const decoder = new TextDecoderStream();
-        port.readable.pipeTo(decoder.writable);
-        reader = decoder.readable.getReader();
-        console.log('Serial port opened');
-        
-        // Reset game state for new game
-        score = 0;
-        lives = 3;
-        gameOver = false;
-        scoreElement.textContent = `Score: ${score}`;
-        lifeElement.textContent = `Lives: ${lives}`;
-        createDots();
-        resetPositions();
-        
-        // Start reading serial data
-        readSerialData();
-        
-        // If the game is not running, start it
-        if (!gameRunning) {
-          gameRunning = true;
-          playSound('start');
-          gameLoop();
-        }
-      } catch(err) {
-        console.error('Serial connection failed:', err);
+      // Update debug display with new speed
+      if (debugMode) {
+        const debugElement = document.getElementById('debug');
+        debugElement.innerHTML += `<br>Speed: ${speedLevels[currentSpeedIndex].name} (${speedFactor.toFixed(2)})`;
       }
     }
-    document.getElementById('connect').addEventListener('click', connectSerial);
-
-    // Handle serial data reading separately from animation loop
-    async function readSerialData() {
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) {
-            reader.releaseLock();
+    
+    // Touch and keyboard handlers
+    function handleKeyDown(e) {
+      if (gameRunning && !gamePaused) {
+        switch (e.key) {
+          case 'ArrowUp':
+            pacman.nextDirection = { x: 0, y: -1 };
             break;
+          case 'ArrowDown':
+            pacman.nextDirection = { x: 0, y: 1 };
+            break;
+          case 'ArrowLeft':
+            pacman.nextDirection = { x: -1, y: 0 };
+            break;
+          case 'ArrowRight':
+            pacman.nextDirection = { x: 1, y: 0 };
+            break;
+          case ' ':  // Space bar
+            togglePause();
+            break;
+          case '+':
+          case '=':
+            changeSpeed(1);
+            break;
+          case '-':
+          case '_':
+            changeSpeed(-1);
+            break;
+        }
+      } else if (gamePaused && e.key === ' ') {
+        togglePause();
+      }
+    }
+    
+    // Check for collision with dots
+    function checkDotCollision() {
+      for (let i = 0; i < dots.length; i++) {
+        if (dots[i].active) {
+          const distance = Math.sqrt(
+            Math.pow(pacman.x - dots[i].x, 2) + 
+            Math.pow(pacman.y - dots[i].y, 2)
+          );
+          
+          if (distance < pacman.radius) {
+            // Pacman eats the dot
+            dots[i].active = false;
+            score += 10;
+            scoreElement.textContent = `Score: ${score}`;
+            
+            // Play chomp sound
+            playSound('chomp');
           }
+        }
+      }
+    }
+    
+    // Check for collision with power pills
+    function checkPowerPelletCollision() {
+      for (let i = 0; i < powerPills.length; i++) {
+        if (powerPills[i].active) {
+          const distance = Math.sqrt(
+            Math.pow(pacman.x - powerPills[i].x, 2) + 
+            Math.pow(pacman.y - powerPills[i].y, 2)
+          );
           
-          // Add to buffer and process complete lines
-          buffer += value;
-          const lines = buffer.split('\n');
-          buffer = lines.pop(); // Keep the last incomplete line in buffer
-          
-          // Process complete lines
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed) {
-              const parts = trimmed.split(',').map(Number);
-              // Check if we have at least X and Y values
-              if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                // normalize to -1…1 with lower sensitivity
-                const newJoystickX = (parts[0] - 512) / 512 * 0.8;
-                const newJoystickY = (parts[1] - 512) / 512 * 0.8;
-                
-                // Apply a larger deadzone to prevent small joystick noise
-                joystickX = Math.abs(newJoystickX) < 0.15 ? 0 : newJoystickX;
-                joystickY = Math.abs(newJoystickY) < 0.15 ? 0 : newJoystickY;
-                
-                // Check for button press if available
-                if (parts.length >= 3 && !isNaN(parts[2])) {
-                  // If button state changed from 0 to 1, toggle pause
-                  if (parts[2] === 1 && joystickButton === 0) {
-                    togglePause();
-                  }
-                  joystickButton = parts[2];
-                }
-              }
+          if (distance < pacman.radius + powerPills[i].radius) {
+            // Pacman eats the power pill
+            powerPills[i].active = false;
+            score += 50;
+            scoreElement.textContent = `Score: ${score}`;
+            
+            // Make ghosts vulnerable
+            for (const ghost of ghosts) {
+              ghost.state = 'vulnerable';
+              ghost.vulnerableTimer = 300; // 10 seconds at 30fps
+            }
+            
+            // Play power pill sound
+            playSound('powerPill');
+          }
+        }
+      }
+    }
+    
+    // Check for collision with ghosts
+    function checkGhostCollision() {
+      for (const ghost of ghosts) {
+        const distance = Math.sqrt(
+          Math.pow(pacman.x - ghost.x, 2) + 
+          Math.pow(pacman.y - ghost.y, 2)
+        );
+        
+        if (distance < pacman.radius + (pacman.radius - 5)) {
+          if (ghost.state === 'vulnerable') {
+            // Pacman eats ghost
+            ghost.x = 400;
+            ghost.y = 300;
+            ghost.state = 'normal';
+            score += 200;
+            scoreElement.textContent = `Score: ${score}`;
+            playSound('eatGhost');
+          } else if (ghost.state === 'normal') {
+            // Ghost catches Pacman
+            lives--;
+            lifeElement.textContent = `Lives: ${lives}`;
+            playSound('death');
+            
+            if (lives <= 0) {
+              gameOver = true;
+            } else {
+              // Reset positions
+              resetPositions();
             }
           }
         }
-      } catch (error) {
-        console.error('Error reading serial data:', error);
       }
     }
     
+    function handleKeyUp(e) {
+      // Currently not used, but included for completeness
+    }
+    
+    function handleTouchStart(e) {
+      // Touch controls implementation
+      if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        const touchX = touch.clientX;
+        const touchY = touch.clientY;
+        
+        // Determine which direction to move based on touch position
+        const rect = canvas.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        
+        if (Math.abs(touchX - centerX) > Math.abs(touchY - centerY)) {
+          // Horizontal swipe
+          if (touchX > centerX) {
+            pacman.nextDirection = { x: 1, y: 0 };
+          } else {
+            pacman.nextDirection = { x: -1, y: 0 };
+          }
+        } else {
+          // Vertical swipe
+          if (touchY > centerY) {
+            pacman.nextDirection = { x: 0, y: 1 };
+          } else {
+            pacman.nextDirection = { x: 0, y: -1 };
+          }
+        }
+      }
+      
+      e.preventDefault();
+    }
+    
+    function handleTouchMove(e) {
+      // Prevent scrolling
+      e.preventDefault();
+    }
+    
+    function handleTouchEnd(e) {
+      // Currently not used, but included for completeness
+      e.preventDefault();
+    }
+    
+    // Initialize the game
+    function init() {
+      createDots();
+      loadSounds();
+      
+      // Set up initial positions
+      resetPositions();
+      
+      // Hide loading screen
+      loadingElement.style.display = 'none';
+      
+      // Make sure the game elements are visible and the canvas is accessible
+      canvas.style.display = 'block';
+      
+      // Draw initial state
+      draw();
+      
+      // Start the game loop with game properly running
+      gameRunning = true;
+      gamePaused = false;
+      gameOver = false;
+      lastFrameTime = Date.now();
+      
+      // Force the first frame to run immediately
+      const initialTimestamp = Date.now();
+      gameLoop(initialTimestamp);
+      
+      // Set up input event listeners
+      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('keyup', handleKeyUp);
+      document.addEventListener('touchstart', handleTouchStart);
+      document.addEventListener('touchmove', handleTouchMove);
+      document.addEventListener('touchend', handleTouchEnd);
+      
+      // Add connect button for Arduino joystick
+      addConnectButton();
+      
+      // Trigger initial resize to set correct dimensions
+      window.dispatchEvent(new Event('resize'));
+      
+      // Play start sound
+      playSound('start');
+    }
+    
+    // Function to read and process serial data from Arduino
+    function readSerialData(data) {
+        // Parse CSV format: "X,Y,BUTTON"
+        const values = data.trim().split(',');
+        if (values.length >= 3) {
+            // Parse joystick values (0-1023 from Arduino)
+            const rawX = parseInt(values[0]);
+            const rawY = parseInt(values[1]);
+            const buttonState = parseInt(values[2]);
+            
+            // Check if values are valid numbers
+            if (!isNaN(rawX) && !isNaN(rawY) && !isNaN(buttonState)) {
+                // Normalize joystick values to range -1 to 1
+                let x = (rawX - 512) / 512;
+                let y = (rawY - 512) / 512;
+                
+                // Flip Y axis if needed
+                y = -y;
+                
+                // Apply smaller deadzone
+                const deadzone = 0.08; // Reduced from 0.1 for more sensitivity
+                if (Math.abs(x) < deadzone) x = 0;
+                if (Math.abs(y) < deadzone) y = 0;
+                
+                // Apply non-linear scaling for better control
+                x = Math.sign(x) * Math.pow(Math.abs(x), 0.8);
+                y = Math.sign(y) * Math.pow(Math.abs(y), 0.8);
+                
+                // Update global joystick values
+                joystickX = x;
+                joystickY = y;
+                
+                // Handle button press - toggle pause
+                if (buttonState === 1 && !buttonPressed) {
+                    togglePause();
+                    buttonPressed = true;
+                } else if (buttonState === 0) {
+                    buttonPressed = false;
+                }
+                
+                // Update debug display if it exists
+                const debugElement = document.getElementById('joystick-debug');
+                if (debugElement) {
+                    debugElement.textContent = `X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}, Btn: ${buttonState}`;
+                }
+            }
+        }
+    }
+
+    // WebSerial API initialization
+    let port;
+    let buttonPressed = false;
+
+    async function connectToArduino() {
+        try {
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600 });
+            
+            const reader = port.readable.getReader();
+            const textDecoder = new TextDecoder();
+            let buffer = '';
+            
+            // Read data loop
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                
+                // Decode the received bytes
+                const chunk = textDecoder.decode(value);
+                buffer += chunk;
+                
+                // Process complete lines
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep the incomplete line in the buffer
+                
+                // Process each complete line
+                for (const line of lines) {
+                    if (line.trim()) {
+                        readSerialData(line);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Serial connection error:', error);
+        }
+    }
+
+    // Add a connect button to the UI
+    function addConnectButton() {
+        // Remove existing connect button and debug display if they exist
+        const existingButton = document.getElementById('connect-button');
+        if (existingButton) {
+            existingButton.remove();
+        }
+        
+        const existingDebug = document.getElementById('joystick-debug');
+        if (existingDebug) {
+            existingDebug.remove();
+        }
+        
+        const connectButton = document.createElement('button');
+        connectButton.id = 'connect-button';
+        connectButton.textContent = 'Connect Joystick';
+        connectButton.style.position = 'absolute';
+        connectButton.style.top = '10px';
+        connectButton.style.left = '10px';
+        connectButton.style.padding = '10px';
+        connectButton.style.zIndex = '1000';
+        connectButton.style.backgroundColor = '#4CAF50';
+        connectButton.style.color = 'white';
+        connectButton.style.border = 'none';
+        connectButton.style.borderRadius = '5px';
+        connectButton.style.cursor = 'pointer';
+        connectButton.addEventListener('click', connectToArduino);
+        document.body.appendChild(connectButton);
+        
+        // Add a joystick debug display
+        const joystickDebug = document.createElement('div');
+        joystickDebug.id = 'joystick-debug';
+        joystickDebug.style.position = 'absolute';
+        joystickDebug.style.top = '60px';
+        joystickDebug.style.left = '10px';
+        joystickDebug.style.color = 'white';
+        joystickDebug.style.fontFamily = 'monospace';
+        joystickDebug.style.zIndex = '1000';
+        document.body.appendChild(joystickDebug);
+    }
+
     // Handle window resize
     window.addEventListener('resize', () => {
       // Keep the game proportional
@@ -952,54 +1356,16 @@
       }
     }
     
-    // Function to change game speed
-    function changeSpeed(direction) {
-      // direction: 1 = faster, -1 = slower
-      currentSpeedIndex = Math.max(0, Math.min(speedLevels.length - 1, currentSpeedIndex + direction));
-      speedFactor = speedLevels[currentSpeedIndex].factor;
-      speedValueElement.textContent = speedLevels[currentSpeedIndex].name;
-    }
-    
     // Set up control buttons
     document.getElementById('speed-up').addEventListener('click', () => changeSpeed(1));
     document.getElementById('speed-down').addEventListener('click', () => changeSpeed(-1));
     document.getElementById('pause-btn').addEventListener('click', togglePause);
     
     // Add keyboard controls for testing without Arduino
-    window.addEventListener('keydown', (e) => {
-      if (gameRunning && !gamePaused) {
-        switch (e.key) {
-          case 'ArrowUp':
-            pacman.nextDirection = { x: 0, y: -1 };
-            break;
-          case 'ArrowDown':
-            pacman.nextDirection = { x: 0, y: 1 };
-            break;
-          case 'ArrowLeft':
-            pacman.nextDirection = { x: -1, y: 0 };
-            break;
-          case 'ArrowRight':
-            pacman.nextDirection = { x: 1, y: 0 };
-            break;
-          case ' ':  // Space bar
-            togglePause();
-            break;
-          case '+':
-          case '=':
-            changeSpeed(1);
-            break;
-          case '-':
-          case '_':
-            changeSpeed(-1);
-            break;
-        }
-      } else if (gamePaused && e.key === ' ') {
-        togglePause();
-      }
-    });
+    window.addEventListener('keydown', handleKeyDown);
     
     // Start the game
-    initGame();
+    init();
   </script>
 </body>
 </html>
