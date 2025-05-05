@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USB Serial Joystick Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #disconnect-btn {
+            background-color: #f44336;
+        }
+        #disconnect-btn:hover {
+            background-color: #d32f2f;
+        }
+        #serial-debug {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #333;
+            color: #fff;
+            border-radius: 5px;
+            min-height: 100px;
+        }
+        #joystick-visualization {
+            width: 300px;
+            height: 300px;
+            background-color: #eee;
+            border-radius: 150px;
+            margin: 20px auto;
+            position: relative;
+            border: 2px solid #ccc;
+        }
+        #joystick-dot {
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            border-radius: 10px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.1s ease-out;
+        }
+        #x-axis, #y-axis {
+            position: absolute;
+            background-color: rgba(0,0,0,0.1);
+        }
+        #x-axis {
+            width: 100%;
+            height: 1px;
+            top: 50%;
+        }
+        #y-axis {
+            width: 1px;
+            height: 100%;
+            left: 50%;
+        }
+        .value-display {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .value-box {
+            text-align: center;
+            width: 45%;
+            padding: 10px;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+        }
+        .bold {
+            font-weight: bold;
+        }
+        .button-active {
+            background-color: #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>USB Serial Joystick Demo</h1>
+        
+        <div class="button-container">
+            <button id="connect-btn">Connect USB Serial</button>
+            <button id="disconnect-btn" disabled>Disconnect</button>
+            <button id="keyboard-mode-btn">Keyboard Mode</button>
+        </div>
+        
+        <div id="serial-debug">Status: Ready to connect to Arduino via USB...</div>
+        
+        <div id="joystick-visualization">
+            <div id="x-axis"></div>
+            <div id="y-axis"></div>
+            <div id="joystick-dot"></div>
+        </div>
+        
+        <div class="value-display">
+            <div class="value-box">
+                <div>X-axis: <span id="x-value" class="bold">0.00</span></div>
+                <div>Raw: <span id="x-raw" class="bold">512</span></div>
+            </div>
+            <div class="value-box">
+                <div>Y-axis: <span id="y-value" class="bold">0.00</span></div>
+                <div>Raw: <span id="y-raw" class="bold">512</span></div>
+            </div>
+        </div>
+        
+        <div id="button-status" style="text-align: center; margin-top: 10px;">
+            Button: <span class="bold">Not Pressed</span>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; font-size: 14px;">
+            <h3>About USB Serial Connection</h3>
+            <p>This demo connects to an Arduino via USB using the Web Serial API.</p>
+            <ul>
+                <li>Works with any Arduino sending joystick data over USB</li>
+                <li>Only supported in Chrome/Edge browsers</li>
+                <li>No pairing required - just select your Arduino port</li>
+                <li>Faster and more reliable than Bluetooth</li>
+            </ul>
+            <p>Expected input format: "X,Y,BUTTON" (e.g., "512,512,0") sent from Arduino via Serial.println().</p>
+            
+            <details>
+                <summary style="cursor:pointer; margin-top:10px; font-weight:bold">Arduino Code Example</summary>
+                <pre style="background-color: #eee; padding: 10px; overflow-x: auto; margin-top: 10px;">
+// Arduino code for USB Serial Joystick
+// Connect Joystick: VCC->5V, GND->GND, VRx->A0, VRy->A1, SW->pin 4
+
+// Joystick pins
+const int VRX_PIN = A0;
+const int VRY_PIN = A1; 
+const int SW_PIN = 4;  // Button pin
+
+// Variables to store joystick values
+int joystickX = 512;
+int joystickY = 512;
+int buttonState = 0;
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+  
+  // Configure button pin with pull-up resistor
+  pinMode(SW_PIN, INPUT_PULLUP);
+  
+  Serial.println("USB Serial Joystick Ready");
+}
+
+void loop() {
+  // Read joystick values
+  joystickX = analogRead(VRX_PIN);
+  joystickY = analogRead(VRY_PIN);
+  
+  // Read button state (LOW when pressed because of pull-up resistor)
+  buttonState = digitalRead(SW_PIN) == LOW ? 1 : 0;
+  
+  // Format data as CSV: X,Y,BUTTON
+  String data = String(joystickX) + "," + String(joystickY) + "," + String(buttonState);
+  
+  // Send data via Serial
+  Serial.println(data);
+  
+  // Small delay to prevent flooding
+  delay(50);
+}
+                </pre>
+            </details>
+            
+            <details>
+                <summary style="cursor:pointer; margin-top:10px; font-weight:bold">USB Serial Setup Tips</summary>
+                <div style="margin-top: 10px;">
+                    <p><strong>Troubleshooting:</strong></p>
+                    <ul>
+                        <li>Make sure you've uploaded the joystick code to your Arduino first</li>
+                        <li>Check that the Arduino is connected to your computer via USB</li>
+                        <li>Ensure the correct port is selected in the connection dialog</li>
+                        <li>If connection fails, try disconnecting/reconnecting the USB cable</li>
+                        <li>For MacOS, you may need to authorize Chrome to access the USB device</li>
+                    </ul>
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <script type="module">
+        import SerialController from './src/serial-controller.js';
+        
+        // UI Elements
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const keyboardBtn = document.getElementById('keyboard-mode-btn');
+        const debugElement = document.getElementById('serial-debug');
+        const joystickDot = document.getElementById('joystick-dot');
+        const xValueElement = document.getElementById('x-value');
+        const yValueElement = document.getElementById('y-value');
+        const xRawElement = document.getElementById('x-raw');
+        const yRawElement = document.getElementById('y-raw');
+        const buttonStatusElement = document.getElementById('button-status');
+        
+        // Serial controller instance
+        let serialController = null;
+        let manualMode = false;
+        
+        // Add debug logging
+        function logDebug(message, isError = false, appendLine = true) {
+            const timestamp = new Date().toLocaleTimeString();
+            const msg = `[${timestamp}] ${message}`;
+            console.log(msg);
+            
+            if (debugElement) {
+                if (message.startsWith('Direction:')) {
+                    // Handle direction updates specially - update existing direction display if it exists
+                    const dirElem = document.getElementById('direction-display');
+                    if (dirElem) {
+                        // Extract the direction from message
+                        const direction = message.split(':')[1].trim();
+                        dirElem.textContent = `Direction: ${direction}`;
+                        dirElem.style.color = direction !== "CENTER" ? 'lime' : 'white';
+                    } else {
+                        // Create a new direction element if it doesn't exist
+                        const dirSpan = document.createElement('div');
+                        dirSpan.id = 'direction-display';
+                        dirSpan.textContent = message;
+                        dirSpan.style.color = message.includes('CENTER') ? 'white' : 'lime';
+                        dirSpan.style.marginTop = '5px';
+                        dirSpan.style.fontWeight = 'bold';
+                        debugElement.appendChild(dirSpan);
+                    }
+                } else {
+                    // Normal log message handling
+                    if (isError) {
+                        if (appendLine) {
+                            debugElement.innerHTML += `<br><span style="color:red">${msg}</span>`;
+                        } else {
+                            debugElement.innerHTML = `<span style="color:red">${msg}</span>`;
+                        }
+                    } else {
+                        if (appendLine) {
+                            debugElement.innerHTML += `<br>${msg}`;
+                        } else {
+                            debugElement.innerHTML = msg;
+                        }
+                    }
+                    // Scroll to bottom
+                    debugElement.scrollTop = debugElement.scrollHeight;
+                }
+            }
+        }
+        
+        // Connect to the USB Serial device
+        connectBtn.addEventListener('click', async () => {
+            // Check if Serial API is supported
+            if (!SerialController.isSupported()) {
+                logDebug("Web Serial API is not supported in this browser. Please use Chrome or Edge.", true);
+                return;
+            }
+            
+            // Create Serial controller if it doesn't exist
+            if (!serialController) {
+                serialController = new SerialController();
+                
+                // Set up data callback
+                serialController.setJoystickDataCallback(handleJoystickData);
+            }
+            
+            // Check if already connected
+            if (serialController.connected) {
+                await disconnect();
+                return;
+            }
+            
+            try {
+                logDebug("Requesting USB Serial connection...");
+                await serialController.connect();
+                
+                // Update UI for connected state
+                updateConnectionUI(true);
+                logDebug("Connected to USB Serial device");
+            } catch (error) {
+                logDebug(`Connection error: ${error.message}`, true);
+                
+                // If in manual mode due to connection failure, update UI
+                if (serialController.manualMode) {
+                    manualMode = true;
+                    updateConnectionUI(true);
+                    logDebug("Using keyboard control as fallback");
+                }
+            }
+        });
+        
+        // Disconnect from the device
+        disconnectBtn.addEventListener('click', async () => {
+            await disconnect();
+        });
+        
+        // Switch to keyboard mode
+        keyboardBtn.addEventListener('click', () => {
+            if (manualMode) {
+                logDebug("Already in keyboard mode");
+                return;
+            }
+            
+            // If connected, disconnect first
+            if (serialController && serialController.connected) {
+                disconnect().then(() => {
+                    // Set up keyboard handlers
+                    if (serialController) {
+                        serialController.setupKeyboardHandlers();
+                        manualMode = true;
+                        updateConnectionUI(true);
+                        logDebug("Switched to keyboard control mode");
+                    }
+                });
+            } else {
+                // Create controller if it doesn't exist
+                if (!serialController) {
+                    serialController = new SerialController();
+                    serialController.setJoystickDataCallback(handleJoystickData);
+                }
+                
+                // Set up keyboard handlers
+                serialController.setupKeyboardHandlers();
+                manualMode = true;
+                updateConnectionUI(true);
+                logDebug("Using keyboard control");
+            }
+        });
+        
+        // Handle joystick data from callback
+        function handleJoystickData(data) {
+            // Update the visualization
+            updateJoystickVisual(data.rawX, data.rawY, data.button);
+            
+            // Log the direction
+            logDebug(`Direction: ${data.direction}`, false, false);
+        }
+        
+        // Update the joystick visualization
+        function updateJoystickVisual(rawX, rawY, buttonState) {
+            // Normalize joystick values
+            const currentX = (rawX - 512) / 512; // Normalize to -1 to 1
+            const currentY = -(rawY - 512) / 512; // Normalize and invert Y
+            
+            // Update displayed values
+            xValueElement.textContent = currentX.toFixed(2);
+            yValueElement.textContent = currentY.toFixed(2);
+            xRawElement.textContent = rawX;
+            yRawElement.textContent = rawY;
+            
+            // Update button status
+            buttonStatusElement.innerHTML = `Button: <span class="bold">${buttonState ? 'PRESSED' : 'Not Pressed'}</span>`;
+            buttonStatusElement.style.color = buttonState ? '#ff9800' : '';
+            
+            // Calculate dot position (150 is half the container width)
+            const dotX = 150 + (currentX * 130);
+            const dotY = 150 + (currentY * 130);
+            
+            // Move the dot
+            joystickDot.style.left = `${dotX}px`;
+            joystickDot.style.top = `${dotY}px`;
+            
+            // Change dot color when button is pressed
+            joystickDot.style.backgroundColor = buttonState ? '#ff9800' : 'red';
+        }
+        
+        // Disconnect from the device
+        async function disconnect() {
+            if (!serialController) {
+                return;
+            }
+            
+            // Disconnect the controller
+            await serialController.disconnect();
+            
+            // Reset UI to disconnected state
+            updateConnectionUI(false);
+            manualMode = false;
+            
+            logDebug("Disconnected from USB Serial device");
+        }
+        
+        // Update UI based on connection status
+        function updateConnectionUI(connected) {
+            if (connected) {
+                connectBtn.textContent = manualMode ? 'Using Keyboard' : 'Connected';
+                connectBtn.style.backgroundColor = manualMode ? '#ff9800' : '#45a049';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                keyboardBtn.disabled = true;
+            } else {
+                connectBtn.textContent = 'Connect USB Serial';
+                connectBtn.style.backgroundColor = '#4CAF50';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                keyboardBtn.disabled = false;
+                
+                // Reset values
+                xRawElement.textContent = '512';
+                yRawElement.textContent = '512';
+                xValueElement.textContent = '0.00';
+                yValueElement.textContent = '0.00';
+                buttonStatusElement.innerHTML = 'Button: <span class="bold">Not Pressed</span>';
+                buttonStatusElement.style.color = '';
+                
+                // Reset dot position
+                joystickDot.style.left = '50%';
+                joystickDot.style.top = '50%';
+                joystickDot.style.backgroundColor = 'red';
+            }
+        }
+        
+        // Check if Web Serial API is supported on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            if (!SerialController.isSupported()) {
+                logDebug("Web Serial API is not supported in this browser. Please use Chrome or Edge.", true);
+                connectBtn.disabled = true;
+                connectBtn.textContent = 'Not Supported';
+                keyboardBtn.style.backgroundColor = '#4CAF50';
+            }
+        });
+    </script>
+</body>
+</html> 

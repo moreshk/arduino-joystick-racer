@@ -1,62 +1,79 @@
-# Arduino Joystick Pacman Game
+# Three.js Joystick Controller
 
-This project demonstrates using an Arduino joystick as an input device to control a Pacman game in the browser.
-
-![Pacman Game](https://via.placeholder.com/800x600.png?text=Arduino+Joystick+Pacman+Game)
+This project demonstrates how to use an Arduino with a joystick controller to interact with a Three.js application via USB Serial.
 
 ## Features
 
-- Classic Pacman gameplay with maze, dots, power pills, and ghosts
-- Real-time control using an Arduino joystick
-- Sound effects for enhanced gaming experience
-- Responsive design that adapts to different screen sizes
-- Pure JavaScript implementation with no dependencies
-- Uses HTML5 Canvas for rendering
+- USB Serial communication between Arduino and browser
+- Real-time joystick input for controlling 3D objects
+- Fallback keyboard controls for testing without hardware
+- Simple demo showcasing interaction with Three.js
+- Joystick visualization with live feedback
 
-## Requirements
+## Hardware Requirements
 
-- Arduino board with analog joystick module (and optional button)
-- Modern web browser with Web Serial API support (Chrome recommended)
-- Sound files placed in the `sounds` directory (optional but recommended)
+- Arduino board (Uno, Nano, Mega, etc.)
+- Analog joystick module with button
+- USB cable to connect Arduino to computer
 
-## How to Use
+## Connection Setup
 
-1. Connect your Arduino with the joystick module
-2. Upload the `arduino/pacman_joystick.ino` sketch to your Arduino
-3. Open the web page in a Chrome browser
-4. Click "Connect Joystick" button
-5. Select your Arduino from the serial port list
-6. Control Pacman by moving the joystick:
-   - Move joystick up: Pacman moves up
-   - Move joystick down: Pacman moves down
-   - Move joystick left: Pacman moves left
-   - Move joystick right: Pacman moves right
+Connect the joystick to Arduino using the following connections:
 
-## Game Rules
+- Joystick VCC → Arduino 5V
+- Joystick GND → Arduino GND
+- Joystick VRx → Arduino A0
+- Joystick VRy → Arduino A1
+- Joystick SW (button) → Arduino D4 (optional)
 
-- Guide Pacman through the maze to eat all dots
-- Avoid ghosts, as they will reduce your lives
-- Eat power pills to temporarily make ghosts vulnerable
-- Eat vulnerable ghosts for bonus points
-- Complete the level by eating all dots and power pills
+## Arduino Code
 
-## Technical Details
+Upload the provided Arduino sketch (`arduino/pacman_joystick_usb.ino`) to your Arduino board. This code reads the joystick values and sends them via USB Serial in CSV format.
 
-The project uses:
-- Web Serial API for communication with Arduino
-- HTML5 Canvas for rendering the game
-- No external libraries required
-- Arduino code with analog smoothing for better control
+## Web Application
 
-## Customization
+The web application uses the Web Serial API to communicate with the Arduino and displays a Three.js scene that can be controlled with the joystick.
 
-You can customize various aspects of the game:
-- Modify the maze layout by changing the walls array in JavaScript
-- Adjust game speed and difficulty
-- Add additional sound effects or replace existing ones
-- Change colors and visual appearance
+### How to Run
 
-## Credits
+1. Connect your Arduino to your computer via USB
+2. Open the web application in a compatible browser (Chrome or Edge)
+3. Click the "Connect USB Serial" button and select your Arduino's port
+4. Use the joystick to control the demo
 
-Created by Moresh Kokane
-Inspired by the classic Pacman arcade game 
+### Browser Compatibility
+
+The Web Serial API is supported in:
+- Google Chrome (89+)
+- Microsoft Edge (89+)
+- Chrome for Android (89+)
+
+It is NOT supported in:
+- Firefox
+- Safari
+- Internet Explorer
+
+## Demo Applications
+
+This repository contains two main demos:
+
+1. **usb-joystick-demo.html** - A simple visualization of joystick input
+2. **index.html** - The main Three.js application with joystick control
+
+## Keyboard Fallback
+
+If you don't have the hardware or encounter connection issues, you can use keyboard controls:
+
+- Arrow keys: Move in corresponding directions
+- Space: Button press
+
+## Troubleshooting
+
+- **Port not appearing in the selection dialog**: Make sure your Arduino is properly connected and has the correct sketch uploaded.
+- **No data received**: Verify the correct baud rate (9600) is set in both Arduino code and the web application.
+- **Permission denied**: On macOS, you may need to grant Chrome permission to access the USB device.
+- **Connection drops**: Try a different USB cable or port.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

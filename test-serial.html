@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serial Joystick Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+    }
+    #status {
+      margin: 20px 0;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+      min-height: 100px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    #joystick-data {
+      margin-top: 20px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>Serial Joystick Test</h1>
+  
+  <button id="connect-btn">Connect Serial Device</button>
+  <button id="disconnect-btn" disabled>Disconnect</button>
+  
+  <div id="status">Ready to connect. Click "Connect Serial Device" to start.</div>
+  
+  <div id="joystick-data">
+    X: 0.00, Y: 0.00, Button: Not Pressed
+  </div>
+  
+  <script type="module">
+    import SerialController from './src/serial-controller.js';
+    
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    const statusDiv = document.getElementById('status');
+    const joystickDataDiv = document.getElementById('joystick-data');
+    
+    let serialController = null;
+    
+    // Check if Web Serial API is supported
+    if (!SerialController.isSupported()) {
+      statusDiv.innerHTML = 'Web Serial API is not supported in this browser. Please use Chrome or Edge.';
+      statusDiv.style.color = 'red';
+      connectBtn.disabled = true;
+      connectBtn.textContent = 'Not Supported';
+    }
+    
+    // Connect button handler
+    connectBtn.addEventListener('click', async () => {
+      if (serialController && serialController.connected) {
+        await disconnect();
+        return;
+      }
+      
+      statusDiv.textContent = 'Connecting to Serial device...';
+      statusDiv.style.color = 'blue';
+      
+      try {
+        // Create a new controller if needed
+        if (!serialController) {
+          serialController = new SerialController();
+          
+          // Set up data callback
+          serialController.setJoystickDataCallback(data => {
+            // Update the joystick data display
+            joystickDataDiv.innerHTML = `
+              X: ${data.x.toFixed(2)}, Y: ${data.y.toFixed(2)}, 
+              Button: ${data.button ? 'Pressed' : 'Not Pressed'}<br>
+              Raw X: ${data.rawX}, Raw Y: ${data.rawY},
+              Direction: ${data.direction}
+            `;
+            
+            // Highlight when moving
+            joystickDataDiv.style.color = 
+              (Math.abs(data.x) > 0.1 || Math.abs(data.y) > 0.1) ? 'green' : 'black';
+          });
+        }
+        
+        // Connect to the serial device
+        await serialController.connect();
+        
+        // Update UI
+        statusDiv.textContent = 'Connected to Serial device';
+        statusDiv.style.color = 'green';
+        connectBtn.textContent = 'Connected';
+        disconnectBtn.disabled = false;
+        
+      } catch (error) {
+        statusDiv.textContent = `Connection error: ${error.message}`;
+        statusDiv.style.color = 'red';
+        console.error('Error connecting:', error);
+        
+        // If we're in manual keyboard mode, update the UI
+        if (serialController && serialController.manualMode) {
+          statusDiv.textContent = 'Using keyboard fallback. Use arrow keys and spacebar.';
+          statusDiv.style.color = 'orange';
+          connectBtn.textContent = 'Using Keyboard';
+          disconnectBtn.disabled = false;
+        }
+      }
+    });
+    
+    // Disconnect button handler
+    disconnectBtn.addEventListener('click', async () => {
+      await disconnect();
+    });
+    
+    // Disconnect function
+    async function disconnect() {
+      if (!serialController) return;
+      
+      try {
+        await serialController.disconnect();
+        
+        // Reset UI
+        statusDiv.textContent = 'Disconnected';
+        statusDiv.style.color = 'black';
+        connectBtn.textContent = 'Connect Serial Device';
+        disconnectBtn.disabled = true;
+        
+        // Reset joystick data display
+        joystickDataDiv.innerHTML = 'X: 0.00, Y: 0.00, Button: Not Pressed';
+        joystickDataDiv.style.color = 'black';
+        
+      } catch (error) {
+        statusDiv.textContent = `Disconnect error: ${error.message}`;
+        statusDiv.style.color = 'red';
+        console.error('Error disconnecting:', error);
+      }
+    }
+  </script>
+</body>
+</html> 

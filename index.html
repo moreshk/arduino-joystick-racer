@@ -14,7 +14,7 @@
     
     #game-container {
       position: relative;
-      margin: 20px auto;
+      margin: 60px auto 20px auto;
       width: 800px;
       height: 600px;
     }
@@ -177,6 +177,142 @@
   
   <div id="debug">Joystick: X: 0.00, Y: 0.00<br>Direction: none</div>
 
+  <script type="module">
+    // Import the SerialController instead of Bluetooth
+    import SerialController from './src/serial-controller.js';
+    
+    // Create a global instance of the Serial controller
+    let serialController = null;
+    
+    // Add serial controller functionality to window object for access in non-module code
+    window.connectSerialJoystick = async function() {
+        try {
+            const debugElement = document.getElementById('joystick-debug');
+            if (debugElement) {
+                debugElement.textContent = "Connecting to USB device...";
+                debugElement.style.color = 'yellow';
+            }
+            
+            if (!SerialController.isSupported()) {
+                const errorMsg = "Web Serial API is not supported in this browser. Please use Chrome or Edge.";
+                console.error(errorMsg);
+                if (debugElement) {
+                    debugElement.textContent = errorMsg;
+                    debugElement.style.color = 'red';
+                }
+                return false;
+            }
+            
+            // Create a new Serial controller if it doesn't exist yet
+            if (!serialController) {
+                serialController = new SerialController();
+            }
+            
+            // Set up the data callback before connecting
+            serialController.setJoystickDataCallback(handleJoystickData);
+            
+            // Connect to the serial device
+            await serialController.connect();
+            
+            if (debugElement) {
+                debugElement.textContent = "Connected to USB Serial device";
+                debugElement.style.color = 'green';
+            }
+            
+            return true;
+        } catch (error) {
+            console.error("Serial connection error:", error);
+            
+            const debugElement = document.getElementById('joystick-debug');
+            if (debugElement) {
+                debugElement.textContent = `Error: ${error.message}`;
+                debugElement.style.color = 'red';
+            }
+            
+            // If the controller switched to manual keyboard mode, return success
+            if (serialController && serialController.manualMode) {
+                return true;
+            }
+            
+            return false;
+        }
+    };
+    
+    // Disconnect from the serial device
+    window.disconnectSerialJoystick = async function() {
+        if (serialController) {
+            await serialController.disconnect();
+            console.log("Disconnected from serial device");
+            return true;
+        }
+        return false;
+    };
+    
+    // Process joystick data and pass it to the game
+    function handleJoystickData(data) {
+        // Update the gamepad object that the game code uses
+        const gamepadState = {
+            // Normalized X and Y values
+            axes: [data.x, data.y],
+            // Button state as an array
+            buttons: [
+                { pressed: data.button, value: data.button ? 1.0 : 0.0 }
+            ],
+            // Direction for convenience
+            direction: data.direction
+        };
+        
+        // Update the window object for the game code to access
+        window.lastJoystickState = gamepadState;
+        
+        // Update global joystick variables that the main game loop uses
+        joystickX = data.x;
+        joystickY = data.y;
+        joystickButton = data.button ? 1 : 0;
+        
+        // Update debug display if it exists
+        const debugEl = document.getElementById('debug');
+        if (debugEl && debugEl.style.display !== 'none') {
+            debugEl.innerHTML = `Joystick: X: ${data.x.toFixed(2)}, Y: ${data.y.toFixed(2)}<br>Direction: ${data.direction}`;
+        }
+        
+        // Dispatch a custom event for the game code
+        const event = new CustomEvent('joystickupdate', { 
+            detail: gamepadState 
+        });
+        window.dispatchEvent(event);
+    }
+    
+    // Initialize when the page loads
+    window.addEventListener('DOMContentLoaded', () => {
+        // Add connect button
+        const gameContainer = document.getElementById('game-container');
+        const connectBtn = document.createElement('button');
+        connectBtn.id = 'connect';
+        connectBtn.textContent = 'Connect Joystick';
+        connectBtn.addEventListener('click', async () => {
+            // If already connected, disconnect
+            if (serialController && serialController.connected) {
+                await window.disconnectSerialJoystick();
+                connectBtn.textContent = 'Connect Joystick';
+            } else {
+                connectBtn.textContent = 'Connecting...';
+                const success = await window.connectSerialJoystick();
+                connectBtn.textContent = success ? 'Disconnect' : 'Connect Joystick';
+            }
+        });
+        gameContainer.appendChild(connectBtn);
+        
+        // Also enable keyboard movement as a fallback
+        document.addEventListener('keydown', (event) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
+                // Prevent default browser behavior for these keys
+                event.preventDefault();
+            }
+        });
+    });
+  </script>
+
   <script>
     // Game canvas setup
     const canvas = document.getElementById('canvas');
@@ -221,6 +357,9 @@
     // Base speeds that will be multiplied by the speed factor
     const BASE_PACMAN_SPEED = 3.5;  // Increased from 2.0 to 3.5
     const BASE_GHOST_SPEEDS = [4.0, 4.0, 3.8, 3.8];  // Increased ghost speeds further
+    
+    // Grid size for wall collision detection
+    const gridSize = 20; // 20px grid units
     
     // Joystick variables
     let joystickX = 0, joystickY = 0;
@@ -364,35 +503,116 @@
         return distanceSquared < (radius * radius);
     }
     
+    // Check if a position is inside a wall
+    function isWall(gridX, gridY) {
+      const testX = gridX * gridSize; // Convert grid position to pixel coordinates
+      const testY = gridY * gridSize;
+      
+      // Check if the position is inside any wall
+      for (const wall of walls) {
+        if (testX >= wall.x && testX < wall.x + wall.width && 
+            testY >= wall.y && testY < wall.y + wall.height) {
+          return true;
+        }
+      }
+      return false;
+    }
+    
     // Update direction based on joystick input
     function updateJoystickDirection(x, y) {
+      console.log('updateJoystickDirection called with values:', x, y);
+      
       // Update debug display with the current joystick values (only if debug element exists)
       const debugElement = document.getElementById('debug');
       if (debugElement) {
         debugElement.innerHTML = 
             `Joystick: X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}<br>` +
             `Direction: ${JSON.stringify(pacman.direction).replace(/[{}"]/g, '')}`;
+        
+        // Make the debug text change color when moving (visual feedback)
+        if (Math.abs(x) > 0.2 || Math.abs(y) > 0.2) {
+          debugElement.style.color = '#ffcc00'; // Yellow when active
+        } else {
+          debugElement.style.color = 'white';   // White when centered
+        }
       }
       
       // Use a smaller threshold for more responsive controls
       const threshold = 0.15;
       
+      // Log for debugging
+      console.log('Checking joystick movement:', 
+                 'X:', x.toFixed(2), 
+                 'Y:', y.toFixed(2), 
+                 'Threshold:', threshold,
+                 'Current pacman direction:', JSON.stringify(pacman.direction),
+                 'Current pacman nextDirection:', JSON.stringify(pacman.nextDirection));
+      
       // Determine direction from joystick input with priority given to larger axis
       // X-axis is reversed: positive X means LEFT, negative X means RIGHT
-      if (Math.abs(x) > Math.abs(y)) {
-          // X-axis movement is dominant
-          if (x > threshold) {
-              pacman.nextDirection = { x: -1, y: 0 }; // Reversed: right stick = left movement
-          } else if (x < -threshold) {
-              pacman.nextDirection = { x: 1, y: 0 };  // Reversed: left stick = right movement
-          }
-      } else if (Math.abs(y) > Math.abs(x)) {
-          // Y-axis movement is dominant
-          if (y > threshold) {
-              pacman.nextDirection = { x: 0, y: 1 };
-          } else if (y < -threshold) {
-              pacman.nextDirection = { x: 0, y: -1 };
-          }
+      if (Math.abs(x) > threshold || Math.abs(y) > threshold) {
+        // We have significant movement in at least one direction
+        const oldDirection = JSON.stringify(pacman.nextDirection);
+        
+        if (Math.abs(x) > Math.abs(y)) {
+            // X-axis movement is dominant
+            if (x > threshold) {
+                pacman.nextDirection = { x: -1, y: 0 }; // Reversed: right stick = left movement
+                console.log('Set nextDirection to LEFT');
+            } else if (x < -threshold) {
+                pacman.nextDirection = { x: 1, y: 0 };  // Reversed: left stick = right movement
+                console.log('Set nextDirection to RIGHT');
+            }
+        } else {
+            // Y-axis movement is dominant
+            if (y > threshold) {
+                pacman.nextDirection = { x: 0, y: 1 };
+                console.log('Set nextDirection to DOWN');
+            } else if (y < -threshold) {
+                pacman.nextDirection = { x: 0, y: -1 };
+                console.log('Set nextDirection to UP');
+            }
+        }
+        
+        const newDirection = JSON.stringify(pacman.nextDirection);
+        if (oldDirection !== newDirection) {
+            console.log('Direction changed from', oldDirection, 'to', newDirection);
+        }
+        
+        // Force immediate direction change if possible
+        attemptDirectionChange();
+      }
+    }
+    
+    // Attempt to change Pacman's direction immediately if possible
+    function attemptDirectionChange() {
+      // Only proceed if we have a next direction and the game is running
+      if (!pacman.nextDirection) {
+        console.log('No next direction set, cannot change direction');
+        return;
+      }
+      
+      if (gamePaused) {
+        console.log('Game is paused, cannot change direction');
+        return;
+      }
+      
+      // Calculate where Pacman would be with the new direction
+      const nextX = Math.floor((pacman.x + pacman.nextDirection.x * pacman.speed) / gridSize);
+      const nextY = Math.floor((pacman.y + pacman.nextDirection.y * pacman.speed) / gridSize);
+      
+      console.log('Attempting direction change:', 
+                 'Current position:', Math.floor(pacman.x/gridSize), Math.floor(pacman.y/gridSize),
+                 'Next position:', nextX, nextY, 
+                 'Direction:', JSON.stringify(pacman.nextDirection));
+      
+      // Check if the new position is valid (not a wall)
+      if (!isWall(nextX, nextY)) {
+        // Change direction immediately
+        pacman.direction = { ...pacman.nextDirection };
+        console.log('Direction change SUCCESSFUL to:', JSON.stringify(pacman.direction));
+      } else {
+        console.log('Direction change FAILED - wall detected at next position');
       }
     }
     
@@ -991,18 +1211,30 @@
     // Touch and keyboard handlers
     function handleKeyDown(e) {
       if (gameRunning && !gamePaused) {
+        // Get current direction before it's updated
+        const prevDirection = {
+          x: pacman.nextDirection.x,
+          y: pacman.nextDirection.y
+        };
+        
+        let directionChanged = false;
+        
         switch (e.key) {
           case 'ArrowUp':
             pacman.nextDirection = { x: 0, y: -1 };
+            directionChanged = true;
             break;
           case 'ArrowDown':
             pacman.nextDirection = { x: 0, y: 1 };
+            directionChanged = true;
             break;
           case 'ArrowLeft':
             pacman.nextDirection = { x: -1, y: 0 };
+            directionChanged = true;
             break;
           case 'ArrowRight':
             pacman.nextDirection = { x: 1, y: 0 };
+            directionChanged = true;
             break;
           case ' ':  // Space bar
             togglePause();
@@ -1015,6 +1247,27 @@
           case '_':
             changeSpeed(-1);
             break;
+        }
+        
+        // If direction changed and we have a connected Serial controller 
+        // in manual mode, update the debug info
+        if (directionChanged && serialController && serialController.connected) {
+          const debugElement = document.getElementById('joystick-debug');
+          
+          // Only update if we don't have an active simulation interval (we're in manual mode)
+          if (!serialController.simulateInterval && debugElement) {
+            // Determine direction text based on next direction
+            let directionText = "CENTER";
+            if (pacman.nextDirection.x === 1) directionText = "RIGHT";
+            else if (pacman.nextDirection.x === -1) directionText = "LEFT";
+            else if (pacman.nextDirection.y === 1) directionText = "DOWN";
+            else if (pacman.nextDirection.y === -1) directionText = "UP";
+            
+            debugElement.innerHTML = `<strong>Manual Keyboard Control</strong><br>` +
+                `Direction: <span style="color: lime">${directionText}</span><br>` +
+                `<span style="color: yellow">Use arrow keys to move Pacman</span>`;
+            debugElement.style.color = 'white';
+          }
         }
       } else if (gamePaused && e.key === ' ') {
         togglePause();
@@ -1178,14 +1431,14 @@
       const initialTimestamp = Date.now();
       gameLoop(initialTimestamp);
       
-      // Set up input event listeners
+      // Set up input event listeners with passive: false for touch events
       document.addEventListener('keydown', handleKeyDown);
       document.addEventListener('keyup', handleKeyUp);
-      document.addEventListener('touchstart', handleTouchStart);
-      document.addEventListener('touchmove', handleTouchMove);
-      document.addEventListener('touchend', handleTouchEnd);
+      document.addEventListener('touchstart', handleTouchStart, { passive: false });
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd, { passive: false });
       
-      // Add connect button for Arduino joystick
+      // Add connect button for Serial joystick
       addConnectButton();
       
       // Trigger initial resize to set correct dimensions
@@ -1195,12 +1448,12 @@
       playSound('start');
     }
     
-    // Function to read and process serial data from Arduino
+    // Function to read and process serial data from Serial
     function readSerialData(data) {
         // Parse CSV format: "X,Y,BUTTON"
         const values = data.trim().split(',');
         if (values.length >= 3) {
-            // Parse joystick values (0-1023 from Arduino)
+            // Parse joystick values (0-1023 from Serial)
             const rawX = parseInt(values[0]);
             const rawY = parseInt(values[1]);
             const buttonState = parseInt(values[2]);
@@ -1248,7 +1501,7 @@
     let port;
     let buttonPressed = false;
 
-    async function connectToArduino() {
+    async function connectToSerial() {
         try {
             port = await navigator.serial.requestPort();
             await port.open({ baudRate: 9600 });
@@ -1284,43 +1537,242 @@
 
     // Add a connect button to the UI
     function addConnectButton() {
-        // Remove existing connect button and debug display if they exist
-        const existingButton = document.getElementById('connect-button');
-        if (existingButton) {
-            existingButton.remove();
-        }
+        // Remove existing buttons and debug display if they exist
+        const existingElements = [
+            'connect-button', 'connect-bt-button', 'debug-bt-button', 
+            'bt-help-button', 'toggle-mode-button', 'refresh-button',
+            'joystick-debug'
+        ];
         
-        const existingDebug = document.getElementById('joystick-debug');
-        if (existingDebug) {
-            existingDebug.remove();
-        }
+        existingElements.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.remove();
+        });
         
+        // Add a joystick debug display (hidden by default)
+        const joystickDebug = document.createElement('div');
+        joystickDebug.id = 'joystick-debug';
+        joystickDebug.style.position = 'absolute';
+        joystickDebug.style.bottom = '10px';
+        joystickDebug.style.left = '10px';
+        joystickDebug.style.width = '300px';
+        joystickDebug.style.padding = '10px';
+        joystickDebug.style.color = 'white';
+        joystickDebug.style.fontFamily = 'monospace';
+        joystickDebug.style.zIndex = '1000';
+        joystickDebug.style.background = 'rgba(0, 0, 0, 0.7)';
+        joystickDebug.style.border = '1px solid #333';
+        joystickDebug.style.borderRadius = '5px';
+        joystickDebug.style.display = 'none'; // Hidden by default
+        joystickDebug.textContent = 'Connect joystick to see input data';
+        document.body.appendChild(joystickDebug);
+        
+        // Create a single row of buttons at the top
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.position = 'fixed';
+        buttonContainer.style.top = '10px';
+        buttonContainer.style.left = '0';
+        buttonContainer.style.width = '100%';
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.justifyContent = 'center';
+        buttonContainer.style.gap = '10px';
+        buttonContainer.style.zIndex = '1000';
+        buttonContainer.style.padding = '10px';
+        buttonContainer.style.background = 'rgba(0, 0, 0, 0.7)';
+        document.body.appendChild(buttonContainer);
+        
+        // Create Serial connection button
         const connectButton = document.createElement('button');
         connectButton.id = 'connect-button';
-        connectButton.textContent = 'Connect Joystick';
-        connectButton.style.position = 'absolute';
-        connectButton.style.top = '10px';
-        connectButton.style.left = '10px';
+        connectButton.textContent = 'Connect Serial Joystick';
         connectButton.style.padding = '10px';
-        connectButton.style.zIndex = '1000';
         connectButton.style.backgroundColor = '#4CAF50';
         connectButton.style.color = 'white';
         connectButton.style.border = 'none';
         connectButton.style.borderRadius = '5px';
         connectButton.style.cursor = 'pointer';
-        connectButton.addEventListener('click', connectToArduino);
-        document.body.appendChild(connectButton);
+        connectButton.onclick = function() {
+            const debugElement = document.getElementById('joystick-debug');
+            if (debugElement) {
+                debugElement.style.display = 'block';
+                debugElement.textContent = "Connecting to Serial joystick...";
+                debugElement.style.color = 'yellow';
+            }
+            connectToSerial().catch(error => {
+                console.error('Failed to connect to Serial:', error);
+                if (debugElement) {
+                    debugElement.textContent = "Serial connection failed: " + error.message;
+                    debugElement.style.color = 'red';
+                }
+            });
+        };
+        buttonContainer.appendChild(connectButton);
         
-        // Add a joystick debug display
-        const joystickDebug = document.createElement('div');
-        joystickDebug.id = 'joystick-debug';
-        joystickDebug.style.position = 'absolute';
-        joystickDebug.style.top = '60px';
-        joystickDebug.style.left = '10px';
-        joystickDebug.style.color = 'white';
-        joystickDebug.style.fontFamily = 'monospace';
-        joystickDebug.style.zIndex = '1000';
-        document.body.appendChild(joystickDebug);
+        // Test Serial button
+        const testButton = document.createElement('button');
+        testButton.id = 'test-serial-button';
+        testButton.textContent = 'Test Serial';
+        testButton.style.padding = '10px';
+        testButton.style.backgroundColor = '#FF9800';
+        testButton.style.color = 'white';
+        testButton.style.border = 'none';
+        testButton.style.borderRadius = '5px';
+        testButton.style.cursor = 'pointer';
+        testButton.onclick = function() {
+            const debugElement = document.getElementById('joystick-debug');
+            if (debugElement) {
+                debugElement.style.display = 'block';
+                debugElement.textContent = "Testing Serial availability...";
+                debugElement.style.color = 'yellow';
+            }
+            if (navigator.serial) {
+                debugElement.textContent = "Web Serial API is available! Ready to connect.";
+                debugElement.style.color = 'lime';
+            } else {
+                debugElement.textContent = "Web Serial API is not available. Please use Chrome or Edge.";
+                debugElement.style.color = 'red';
+            }
+        };
+        buttonContainer.appendChild(testButton);
+        
+        // Connection help button
+        const helpButton = document.createElement('button');
+        helpButton.id = 'serial-help-button';
+        helpButton.textContent = 'Serial Connection Help';
+        helpButton.style.padding = '10px';
+        helpButton.style.backgroundColor = '#9C27B0';
+        helpButton.style.color = 'white';
+        helpButton.style.border = 'none';
+        helpButton.style.borderRadius = '5px';
+        helpButton.style.cursor = 'pointer';
+        helpButton.onclick = function() {
+            const debugElement = document.getElementById('joystick-debug');
+            if (debugElement) {
+                debugElement.style.display = 'block';
+                debugElement.innerHTML = `
+                    <strong>USB Serial Connection Help:</strong><br>
+                    1. Connect your Arduino with the joystick<br>
+                    2. Upload the "pacman_joystick_usb.ino" sketch<br>
+                    3. Click "Connect Serial Joystick"<br>
+                    4. Select your Arduino port from the dialog<br>
+                    <br>
+                    <strong>Troubleshooting:</strong><br>
+                    • Use Chrome or Edge browser<br>
+                    • Check the Arduino is properly connected<br>
+                    • Try disconnecting and reconnecting USB cable<br>
+                    • On Mac, grant Chrome access to USB devices
+                `;
+                debugElement.style.color = 'white';
+            }
+        };
+        buttonContainer.appendChild(helpButton);
+        
+        // Enable Auto Mode button
+        const autoModeButton = document.createElement('button');
+        autoModeButton.id = 'auto-mode-button';
+        autoModeButton.textContent = 'Enable Auto Mode';
+        autoModeButton.style.padding = '10px';
+        autoModeButton.style.backgroundColor = '#9E9E9E';
+        autoModeButton.style.color = 'white';
+        autoModeButton.style.border = 'none';
+        autoModeButton.style.borderRadius = '5px';
+        autoModeButton.style.cursor = 'pointer';
+        
+        // Toggle between manual and auto mode
+        let autoModeEnabled = false;
+        autoModeButton.onclick = function() {
+            if (serialController && serialController.connected) {
+                const debugElement = document.getElementById('joystick-debug');
+                if (debugElement) debugElement.style.display = 'block';
+                
+                // Toggle auto mode
+                autoModeEnabled = !autoModeEnabled;
+                
+                if (autoModeEnabled) {
+                    // Enable auto mode
+                    autoModeButton.textContent = 'Disable Auto Mode';
+                    autoModeButton.style.backgroundColor = '#FF5722';
+                    
+                    // Set up automatic simulation
+                    if (serialController.simulateInterval) {
+                        clearInterval(serialController.simulateInterval);
+                    }
+                    
+                    // Create simulation interval
+                    let simX = 512, simY = 512, simButton = 0;
+                    serialController.simulateInterval = setInterval(() => {
+                        // Circular motion pattern
+                        const time = Date.now() / 1000;
+                        const radius = 200;
+                        
+                        simX = 512 + Math.cos(time) * radius;
+                        simY = 512 + Math.sin(time) * radius;
+                        
+                        // Occasionally toggle button
+                        if (Math.random() < 0.02) {
+                            simButton = simButton ? 0 : 1;
+                        }
+                        
+                        // Process data
+                        const data = `${Math.round(simX)},${Math.round(simY)},${simButton}`;
+                        serialController.processJoystickData(data);
+                        
+                        // Update debug display
+                        if (debugElement) {
+                            debugElement.innerHTML = `<strong>Auto Mode ENABLED</strong><br>` +
+                                `Using simulated data: ${data}<br>` +
+                                `<span style="color: yellow">Click 'Disable Auto Mode' to use keyboard</span>`;
+                            debugElement.style.color = simButton ? 'lime' : 'cyan';
+                        }
+                    }, 100);
+                    
+                    if (debugElement) {
+                        debugElement.innerHTML = `<strong>Auto Mode ENABLED</strong><br>` +
+                            `Pacman will move automatically in a circular pattern<br>` +
+                            `<span style="color: yellow">Click 'Disable Auto Mode' to use keyboard</span>`;
+                        debugElement.style.color = 'orange';
+                    }
+                } else {
+                    // Disable auto mode
+                    autoModeButton.textContent = 'Enable Auto Mode';
+                    autoModeButton.style.backgroundColor = '#9E9E9E';
+                    
+                    // Clear simulation
+                    if (serialController.simulateInterval) {
+                        clearInterval(serialController.simulateInterval);
+                        serialController.simulateInterval = null;
+                    }
+                    
+                    // Reset to center
+                    serialController.processJoystickData("512,512,0");
+                    
+                    if (debugElement) {
+                        debugElement.innerHTML = `<strong>Manual Mode ENABLED</strong><br>` +
+                            `Use keyboard arrow keys to control Pacman<br>` +
+                            `<span style="color: yellow">Click 'Enable Auto Mode' for auto movement</span>`;
+                        debugElement.style.color = 'white';
+                    }
+                }
+            } else {
+                alert("Please connect to a Serial device first");
+            }
+        };
+        buttonContainer.appendChild(autoModeButton);
+        
+        // Refresh button
+        const refreshButton = document.createElement('button');
+        refreshButton.id = 'refresh-button';
+        refreshButton.textContent = 'Refresh Page';
+        refreshButton.style.padding = '10px';
+        refreshButton.style.backgroundColor = '#F44336';
+        refreshButton.style.color = 'white';
+        refreshButton.style.border = 'none';
+        refreshButton.style.borderRadius = '5px';
+        refreshButton.style.cursor = 'pointer';
+        refreshButton.onclick = function() {
+            location.reload();
+        };
+        buttonContainer.appendChild(refreshButton);
     }
 
     // Handle window resize
@@ -1339,6 +1791,12 @@
       
       container.style.width = `${newWidth}px`;
       container.style.height = `${newHeight}px`;
+      
+      // Ensure the minimum top margin is maintained
+      const currentMarginTop = parseInt(window.getComputedStyle(container).marginTop, 10);
+      if (currentMarginTop < 60) {
+        container.style.marginTop = '60px';
+      }
     });
     
     // Function to toggle game pause state
@@ -1361,8 +1819,27 @@
     document.getElementById('speed-down').addEventListener('click', () => changeSpeed(-1));
     document.getElementById('pause-btn').addEventListener('click', togglePause);
     
-    // Add keyboard controls for testing without Arduino
+    // Add keyboard controls for testing without Serial
     window.addEventListener('keydown', handleKeyDown);
+    
+    // Helper function to get text direction from joystick values
+    function getDirectionText(x, y) {
+      // Threshold to determine if there's significant movement
+      const threshold = 0.1;
+      
+      if (Math.abs(x) < threshold && Math.abs(y) < threshold) {
+        return "CENTER";
+      }
+      
+      // Determine primary direction based on magnitude
+      if (Math.abs(x) > Math.abs(y)) {
+        // X-axis is dominant
+        return x > 0 ? "RIGHT" : "LEFT";
+      } else {
+        // Y-axis is dominant
+        return y > 0 ? "DOWN" : "UP";
+      }
+    }
     
     // Start the game
     init();

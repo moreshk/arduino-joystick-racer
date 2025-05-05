@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluetooth Joystick Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #disconnect-btn {
+            background-color: #f44336;
+        }
+        #disconnect-btn:hover {
+            background-color: #d32f2f;
+        }
+        #bt-debug {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #333;
+            color: #fff;
+            border-radius: 5px;
+            min-height: 100px;
+        }
+        #joystick-visualization {
+            width: 300px;
+            height: 300px;
+            background-color: #eee;
+            border-radius: 150px;
+            margin: 20px auto;
+            position: relative;
+            border: 2px solid #ccc;
+        }
+        #joystick-dot {
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            border-radius: 10px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.1s ease-out;
+        }
+        #x-axis, #y-axis {
+            position: absolute;
+            background-color: rgba(0,0,0,0.1);
+        }
+        #x-axis {
+            width: 100%;
+            height: 1px;
+            top: 50%;
+        }
+        #y-axis {
+            width: 1px;
+            height: 100%;
+            left: 50%;
+        }
+        .value-display {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .value-box {
+            text-align: center;
+            width: 45%;
+            padding: 10px;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+        }
+        .bold {
+            font-weight: bold;
+        }
+        .button-active {
+            background-color: #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bluetooth Joystick Demo</h1>
+        
+        <div class="button-container">
+            <button id="connect-btn">Connect HC-06</button>
+            <button id="disconnect-btn" disabled>Disconnect</button>
+            <button id="alt-scan-btn">Alternative Scan</button>
+        </div>
+        
+        <div id="bt-debug">Status: Ready to connect to HC-06 device...</div>
+        
+        <div id="joystick-visualization">
+            <div id="x-axis"></div>
+            <div id="y-axis"></div>
+            <div id="joystick-dot"></div>
+        </div>
+        
+        <div class="value-display">
+            <div class="value-box">
+                <div>X-axis: <span id="x-value" class="bold">0.00</span></div>
+                <div>Raw: <span id="x-raw" class="bold">512</span></div>
+            </div>
+            <div class="value-box">
+                <div>Y-axis: <span id="y-value" class="bold">0.00</span></div>
+                <div>Raw: <span id="y-raw" class="bold">512</span></div>
+            </div>
+        </div>
+        
+        <div id="button-status" style="text-align: center; margin-top: 10px;">
+            Button: <span class="bold">Not Pressed</span>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; font-size: 14px;">
+            <h3>About HC-06 Bluetooth Module</h3>
+            <p>The HC-06 is a <strong>slave-only</strong> Bluetooth module that:</p>
+            <ul>
+                <li>Can only act as a receiver in a Bluetooth connection</li>
+                <li>Cannot initiate connections (can only accept them)</li>
+                <li>Operates in Serial Port Profile (SPP) mode only</li>
+                <li>Functions as a wireless serial port replacement</li>
+            </ul>
+            <p>This demo works by having your browser act as the master device, initiating the connection to the HC-06.</p>
+            <p>Expected input format: "X,Y,BUTTON" (e.g., "512,512,0") sent from Arduino via Serial.println().</p>
+            
+            <details>
+                <summary style="cursor:pointer; margin-top:10px; font-weight:bold">Arduino Code Example</summary>
+                <pre style="background-color: #eee; padding: 10px; overflow-x: auto; margin-top: 10px;">
+// Arduino code for HC-06 Bluetooth Joystick
+// Connect HC-06: VCC->5V, GND->GND, TX->RX(pin 2), RX->TX(pin 3)
+// Connect Joystick: VCC->5V, GND->GND, VRx->A0, VRy->A1, SW->pin 4
+
+#include &lt;SoftwareSerial.h&gt;
+
+// HC-06 Bluetooth module pins
+SoftwareSerial bluetooth(2, 3); // RX, TX
+
+// Joystick pins
+const int VRX_PIN = A0;
+const int VRY_PIN = A1; 
+const int SW_PIN = 4;  // Button pin
+
+// Variables to store joystick values
+int joystickX = 512;
+int joystickY = 512;
+int buttonState = 0;
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+  
+  // Initialize Bluetooth communication at 9600 baud rate (HC-06 default)
+  bluetooth.begin(9600);
+  
+  // Configure button pin with pull-up resistor
+  pinMode(SW_PIN, INPUT_PULLUP);
+  
+  Serial.println("Bluetooth Joystick Ready");
+}
+
+void loop() {
+  // Read joystick values
+  joystickX = analogRead(VRX_PIN);
+  joystickY = analogRead(VRY_PIN);
+  
+  // Read button state (LOW when pressed because of pull-up resistor)
+  buttonState = digitalRead(SW_PIN) == LOW ? 1 : 0;
+  
+  // Format data as CSV: X,Y,BUTTON
+  String data = String(joystickX) + "," + String(joystickY) + "," + String(buttonState);
+  
+  // Send data via Bluetooth
+  bluetooth.println(data);
+  
+  // Also print to serial monitor for debugging
+  Serial.println(data);
+  
+  // Small delay to prevent flooding
+  delay(50);
+}
+                </pre>
+            </details>
+            
+            <details>
+                <summary style="cursor:pointer; margin-top:10px; font-weight:bold">HC-06 Setup Tips</summary>
+                <div style="margin-top: 10px;">
+                    <p><strong>Pairing the HC-06:</strong></p>
+                    <ul>
+                        <li>Default pairing PIN code is usually <strong>1234</strong> or <strong>0000</strong></li>
+                        <li>The HC-06 LED blinks when unpaired, stays solid when paired</li>
+                        <li>On Mac, pair in System Preferences → Bluetooth</li>
+                        <li>On Windows, pair in Settings → Bluetooth & Devices</li>
+                    </ul>
+                    
+                    <p><strong>Troubleshooting:</strong></p>
+                    <ul>
+                        <li>Make sure the HC-06 is powered correctly (requires 3.3V-6V)</li>
+                        <li>Check TX/RX connections (they should be crossed: TX→RX, RX→TX)</li>
+                        <li>Ensure correct baud rate (default is 9600)</li>
+                        <li>Remove HC-06 from paired devices and re-pair if connection issues persist</li>
+                    </ul>
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <script>
+        // UI Elements
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const altScanBtn = document.getElementById('alt-scan-btn');
+        const debugElement = document.getElementById('bt-debug');
+        const joystickDot = document.getElementById('joystick-dot');
+        const xValueElement = document.getElementById('x-value');
+        const yValueElement = document.getElementById('y-value');
+        const xRawElement = document.getElementById('x-raw');
+        const yRawElement = document.getElementById('y-raw');
+        const buttonStatusElement = document.getElementById('button-status');
+        
+        // Bluetooth device variables
+        let bluetoothDevice = null;
+        let gattServer = null;
+        let joystickCharacteristic = null;
+        let manualMode = false;
+        let keyboardHandler = null;
+        let currentX = 0;
+        let currentY = 0;
+        let buttonPressed = false;
+        let isConnected = false;
+        let pollingInterval = null;
+        
+        // Add HC-06 specific debug logging
+        function logDebug(message, isError = false, appendLine = true) {
+            const timestamp = new Date().toLocaleTimeString();
+            const msg = `[${timestamp}] ${message}`;
+            console.log(msg);
+            
+            if (debugElement) {
+                if (message.startsWith('Direction:')) {
+                    // Handle direction updates specially - update existing direction display if it exists
+                    const dirElem = document.getElementById('direction-display');
+                    if (dirElem) {
+                        // Extract the direction from message
+                        const direction = message.split(':')[1].trim();
+                        dirElem.textContent = `Direction: ${direction}`;
+                        dirElem.style.color = direction !== "CENTER" ? 'lime' : 'white';
+                    } else {
+                        // Create a new direction element if it doesn't exist
+                        const dirSpan = document.createElement('div');
+                        dirSpan.id = 'direction-display';
+                        dirSpan.textContent = message;
+                        dirSpan.style.color = message.includes('CENTER') ? 'white' : 'lime';
+                        dirSpan.style.marginTop = '5px';
+                        dirSpan.style.fontWeight = 'bold';
+                        debugElement.appendChild(dirSpan);
+                    }
+                } else {
+                    // Normal log message handling
+                    if (isError) {
+                        if (appendLine) {
+                            debugElement.innerHTML += `<br><span style="color:red">${msg}</span>`;
+                        } else {
+                            debugElement.innerHTML = `<span style="color:red">${msg}</span>`;
+                        }
+                    } else {
+                        if (appendLine) {
+                            debugElement.innerHTML += `<br>${msg}`;
+                        } else {
+                            debugElement.innerHTML = msg;
+                        }
+                    }
+                    // Scroll to bottom
+                    debugElement.scrollTop = debugElement.scrollHeight;
+                }
+            }
+        }
+        
+        // Connect to the HC-06 Bluetooth device
+        connectBtn.addEventListener('click', async () => {
+            connect();
+        });
+        
+        // Disconnect from the device
+        disconnectBtn.addEventListener('click', () => {
+            disconnect();
+        });
+        
+        // Handle joystick data received from the HC-06
+        function handleJoystickData(event) {
+            const value = event.target.value;
+            const decoder = new TextDecoder('utf-8');
+            const data = decoder.decode(value);
+            
+            processJoystickData(data);
+        }
+        
+        // Process joystick data from CSV format
+        function processJoystickData(data) {
+            // Sample data format for HC-06 joystick: "X:123,Y:456,BTN:1"
+            logDebug(`Processing joystick data: ${data}`);
+            
+            try {
+                // Different HC-06 modules may send data in different formats
+                // Here's a flexible parser that handles common formats
+                
+                // Format 1: X:123,Y:456,BTN:1
+                if (data.includes('X:') && data.includes('Y:')) {
+                    const xMatch = data.match(/X:(\d+)/);
+                    const yMatch = data.match(/Y:(\d+)/);
+                    const btnMatch = data.match(/BTN:(\d+)/);
+                    
+                    if (xMatch && yMatch) {
+                        const x = parseInt(xMatch[1]);
+                        const y = parseInt(yMatch[1]);
+                        const btn = btnMatch ? parseInt(btnMatch[1]) : 0;
+                        
+                        updateJoystickVisual(x, y, btn);
+                        return;
+                    }
+                }
+                
+                // Format 2: 123,456,1 (x,y,button)
+                const parts = data.split(',');
+                if (parts.length >= 2) {
+                    const x = parseInt(parts[0]);
+                    const y = parseInt(parts[1]);
+                    const btn = parts.length > 2 ? parseInt(parts[2]) : 0;
+                    
+                    if (!isNaN(x) && !isNaN(y)) {
+                        updateJoystickVisual(x, y, btn);
+                        return;
+                    }
+                }
+                
+                // Format 3: Single byte format (compact binary data)
+                if (data.length === 3) {
+                    const x = data.charCodeAt(0);
+                    const y = data.charCodeAt(1);
+                    const btn = data.charCodeAt(2);
+                    
+                    updateJoystickVisual(x, y, btn);
+                    return;
+                }
+                
+                logDebug('Unknown data format, could not parse joystick data');
+            } catch (e) {
+                logDebug(`Error parsing joystick data: ${e.message}`);
+            }
+        }
+        
+        // Update the joystick visualization
+        function updateJoystickVisual(rawX, rawY, buttonState) {
+            // Store values for the UI updates
+            currentX = (rawX - 512) / 512; // Normalize to -1 to 1
+            currentY = -(rawY - 512) / 512; // Normalize and invert Y
+            buttonPressed = buttonState > 0;
+            
+            // Update displayed values
+            xValueElement.textContent = currentX.toFixed(2);
+            yValueElement.textContent = currentY.toFixed(2);
+            xRawElement.textContent = rawX;
+            yRawElement.textContent = rawY;
+            
+            // Update button status
+            buttonStatusElement.innerHTML = `Button: <span class="bold">${buttonPressed ? 'PRESSED' : 'Not Pressed'}</span>`;
+            buttonStatusElement.style.color = buttonPressed ? '#ff9800' : '';
+            
+            // Calculate dot position (150 is half the container width)
+            const dotX = 150 + (currentX * 130);
+            const dotY = 150 + (currentY * 130);
+            
+            // Move the dot
+            joystickDot.style.left = `${dotX}px`;
+            joystickDot.style.top = `${dotY}px`;
+            
+            // Change dot color when button is pressed
+            joystickDot.style.backgroundColor = buttonPressed ? '#ff9800' : 'red';
+            
+            // Get direction text for display
+            let direction = "CENTER";
+            if (Math.abs(currentX) > 0.1 || Math.abs(currentY) > 0.1) {
+                if (Math.abs(currentX) > Math.abs(currentY)) {
+                    direction = currentX > 0 ? "RIGHT" : "LEFT";
+                } else {
+                    direction = currentY > 0 ? "DOWN" : "UP";
+                }
+            }
+            
+            // Update direction in debug display
+            logDebug(`Direction: ${direction}`, false, false);
+        }
+        
+        // Set up keyboard controls for when the HC-06 can't connect properly
+        function setupKeyboardHandler() {
+            // Remove any existing keyboard handlers
+            if (keyboardHandler) {
+                document.removeEventListener('keydown', keyboardHandler.keydown);
+                document.removeEventListener('keyup', keyboardHandler.keyup);
+            }
+            
+            // Current joystick state
+            let simX = 512;
+            let simY = 512;
+            let simButton = 0;
+            
+            // Key states
+            const keyState = {
+                ArrowUp: false,
+                ArrowDown: false,
+                ArrowLeft: false,
+                ArrowRight: false,
+                ' ': false // Space for button
+            };
+            
+            // Create keydown handler
+            const keydownHandler = (event) => {
+                // Check if this is a key we're handling
+                if (event.key in keyState) {
+                    // Prevent default browser behavior for these keys
+                    event.preventDefault();
+                    
+                    // If state hasn't changed, don't process again
+                    if (keyState[event.key] === true) return;
+                    
+                    // Update key state
+                    keyState[event.key] = true;
+                    
+                    // Update simulated values based on key pressed
+                    switch (event.key) {
+                        case 'ArrowUp':
+                            simY = 312; // Lower value = up
+                            break;
+                        case 'ArrowDown':
+                            simY = 712; // Higher value = down
+                            break;
+                        case 'ArrowLeft':
+                            simX = 312; // Lower value = left
+                            break;
+                        case 'ArrowRight':
+                            simX = 712; // Higher value = right
+                            break;
+                        case ' ':  // Spacebar for button press
+                            simButton = 1;
+                            break;
+                    }
+                    
+                    // Handle diagonal movement for better control
+                    if (keyState['ArrowUp'] && keyState['ArrowLeft']) {
+                        simX = 312;
+                        simY = 312;
+                    } else if (keyState['ArrowUp'] && keyState['ArrowRight']) {
+                        simX = 712;
+                        simY = 312;
+                    } else if (keyState['ArrowDown'] && keyState['ArrowLeft']) {
+                        simX = 312;
+                        simY = 712;
+                    } else if (keyState['ArrowDown'] && keyState['ArrowRight']) {
+                        simX = 712;
+                        simY = 712;
+                    }
+                    
+                    // Process the simulated joystick data
+                    logDebug(`Manual input: X=${simX}, Y=${simY}, Button=${simButton}`);
+                    processJoystickData(`${simX},${simY},${simButton}`);
+                }
+            };
+            
+            // Create keyup handler
+            const keyupHandler = (event) => {
+                // Check if this is a key we're handling
+                if (event.key in keyState) {
+                    // Prevent default browser behavior
+                    event.preventDefault();
+                    
+                    // Update key state
+                    keyState[event.key] = false;
+                    
+                    // Reset corresponding value based on key released
+                    switch (event.key) {
+                        case 'ArrowUp':
+                        case 'ArrowDown':
+                            // Only reset Y if both up and down are released
+                            if (!keyState['ArrowUp'] && !keyState['ArrowDown']) {
+                                simY = 512; // Center position
+                            } else if (keyState['ArrowUp']) {
+                                simY = 312; // Keep up direction
+                            } else if (keyState['ArrowDown']) {
+                                simY = 712; // Keep down direction
+                            }
+                            break;
+                        case 'ArrowLeft':
+                        case 'ArrowRight':
+                            // Only reset X if both left and right are released
+                            if (!keyState['ArrowLeft'] && !keyState['ArrowRight']) {
+                                simX = 512; // Center position
+                            } else if (keyState['ArrowLeft']) {
+                                simX = 312; // Keep left direction
+                            } else if (keyState['ArrowRight']) {
+                                simX = 712; // Keep right direction
+                            }
+                            break;
+                        case ' ':  // Spacebar release
+                            simButton = 0;
+                            break;
+                    }
+                    
+                    // Process the updated joystick data
+                    logDebug(`Manual input: X=${simX}, Y=${simY}, Button=${simButton}`);
+                    processJoystickData(`${simX},${simY},${simButton}`);
+                }
+            };
+            
+            // Store handlers for later removal
+            keyboardHandler = {
+                keydown: keydownHandler,
+                keyup: keyupHandler
+            };
+            
+            // Register event handlers
+            document.addEventListener('keydown', keydownHandler);
+            document.addEventListener('keyup', keyupHandler);
+            
+            // Process initial center position
+            processJoystickData('512,512,0');
+            
+            logDebug('Keyboard handler set up. Use arrow keys and spacebar.');
+        }
+        
+        // Set up polling for HC-06 read-only characteristic
+        function setupCharacteristicPolling(characteristic) {
+            // Clear any existing polling
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            
+            // Set up polling interval (100ms = 10 readings per second)
+            pollingInterval = setInterval(async () => {
+                try {
+                    // Read the characteristic value
+                    const value = await characteristic.readValue();
+                    // Process the data as if it came from a notification
+                    handleJoystickData({target: {value}});
+                } catch (error) {
+                    console.error('Error reading characteristic:', error);
+                    
+                    // Check if we're still connected
+                    if (!gattServer || !gattServer.connected) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                        onDisconnected();
+                    }
+                }
+            }, 100);
+            
+            // Clean up on disconnect
+            if (bluetoothDevice) {
+                bluetoothDevice.addEventListener('gattserverdisconnected', () => {
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                    }
+                });
+            }
+        }
+        
+        // Handle disconnection
+        function onDisconnected() {
+            logDebug('Device disconnected', true);
+            disconnect();
+        }
+        
+        // Disconnect from the device
+        function disconnect() {
+            if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                bluetoothDevice.gatt.disconnect();
+            }
+            
+            if (joystickCharacteristic) {
+                try {
+                    joystickCharacteristic.stopNotifications();
+                } catch (e) {
+                    // Ignore error if already disconnected
+                }
+            }
+            
+            // Reset state
+            isConnected = false;
+            connectBtn.textContent = 'Connect';
+            connectBtn.style.backgroundColor = '#4CAF50';
+            disconnectBtn.disabled = true;
+            debugElement.textContent = 'Disconnected';
+            debugElement.style.color = 'orange';
+            
+            // Stop any polling if it was set up
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            
+            // Remove keyboard handlers if active
+            if (keyboardHandler) {
+                document.removeEventListener('keydown', keyboardHandler.keydown);
+                document.removeEventListener('keyup', keyboardHandler.keyup);
+                keyboardHandler = null;
+            }
+            
+            // Hide any manual mode indicator
+        }
+        
+        // Update UI based on connection status
+        function updateConnectionUI(connected) {
+            if (connected) {
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                connectBtn.textContent = manualMode ? 'Using Keyboard' : 'Connected';
+                connectBtn.style.backgroundColor = manualMode ? '#ff9800' : '#45a049';
+            } else {
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                connectBtn.textContent = 'Connect HC-06';
+                connectBtn.style.backgroundColor = '#4CAF50';
+                
+                // Reset values
+                xRawElement.textContent = '512';
+                yRawElement.textContent = '512';
+                xValueElement.textContent = '0.00';
+                yValueElement.textContent = '0.00';
+                buttonStatusElement.innerHTML = 'Button: <span class="bold">Not Pressed</span>';
+                buttonStatusElement.style.color = '';
+            }
+        }
+        
+        // Alternative scan for HC-06 when standard approach doesn't work
+        altScanBtn.addEventListener('click', async () => {
+            debugElement.innerHTML = 'Attempting alternative scan method...<br>' +
+                '<small>This will try to find any Bluetooth device</small>';
+            debugElement.style.color = 'yellow';
+            
+            try {
+                // Basic browser support check for Bluetooth API
+                if (!navigator.bluetooth) {
+                    throw new Error('Web Bluetooth API is not supported in this browser. Please use Chrome, Edge, or Opera.');
+                }
+                
+                // Alternative scan with accept all devices
+                const device = await navigator.bluetooth.requestDevice({
+                    // Accept any Bluetooth device - this can help find HC-06 devices that don't advertise services properly
+                    acceptAllDevices: true,
+                });
+                
+                bluetoothDevice = device;
+                
+                debugElement.innerHTML = `Found device: ${device.name || 'Unnamed device'}.<br>` +
+                    '<small>HC-06 may not support services, switching to manual mode.</small>';
+                
+                // Handle disconnection
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                
+                // For HC-06 found with alternative scan, just go straight to manual mode
+                debugElement.innerHTML = `Device '${device.name || 'Unnamed'}' found but might not support web services (common for HC-06).<br>` +
+                    'Using keyboard mode for testing. Arrow keys control the joystick.';
+                debugElement.style.color = 'orange';
+                
+                manualMode = true;
+                setupKeyboardHandler();
+                updateConnectionUI(true);
+                
+            } catch (error) {
+                debugElement.textContent = `Alternative scan error: ${error.message}`;
+                debugElement.style.color = 'red';
+                console.error('Alternative Bluetooth scan error:', error);
+            }
+        });
+
+        function scanForBluetoothDevices() {
+            updateScanButtonState(true);
+            debugElement.innerHTML = "Scanning for Bluetooth devices...";
+            
+            // Define our services to scan for
+            const serviceUuids = [
+                '0000fff0-0000-1000-8000-00805f9b34fb',
+                '0000ffd0-0000-1000-8000-00805f9b34fb',
+                '00001101-0000-1000-8000-00805f9b34fb', // SPP service
+                '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
+                '00001801-0000-1000-8000-00805f9b34fb', // Generic Attribute
+                '00001124-0000-1000-8000-00805f9b34fb'  // Human Interface Device
+            ];
+
+            logDebug(`Scanning for HC-06 with service UUIDs: ${serviceUuids.join(', ')}`);
+            
+            let options = {
+                filters: [
+                    { services: serviceUuids },
+                    { namePrefix: 'HC-06' },
+                    { namePrefix: 'HC06' }
+                ],
+                optionalServices: serviceUuids
+            };
+            
+            // Try to request the Bluetooth device
+            navigator.bluetooth.requestDevice(options)
+                .then(device => {
+                    logDebug(`Device found: ${device.name || 'Unnamed Device'}`);
+                    return connectToDevice(device);
+                })
+                .catch(error => {
+                    logDebug(`Error scanning: ${error.message}`, true);
+                    updateScanButtonState(false);
+                    
+                    // If no devices found with specific services, try alternative scanning
+                    if (error.message.includes('No devices found') || 
+                        error.message.includes('User cancelled') || 
+                        error.message.includes('No Bluetooth device selected')) {
+                        debugElement.innerHTML = "No HC-06 devices found with expected services.<br>Try the 'Alternative Scan' button to scan for any Bluetooth device.";
+                    }
+                });
+        }
+
+        function connectToDevice(device) {
+            connectedDevice = device;
+            device.addEventListener('gattserverdisconnected', onDisconnected);
+            
+            logDebug(`Attempting to connect to GATT server for ${device.name || 'HC-06'}`);
+            
+            // First try the normal connection
+            return device.gatt.connect()
+                .then(server => {
+                    logDebug(`Connected to GATT server for ${device.name || 'HC-06'}`);
+                    return tryServices(server);
+                })
+                .catch(error => {
+                    logDebug(`Connection error: ${error.message}`, true);
+                    
+                    // Special handling for the HC-06 device
+                    if (device.name && (device.name.includes('HC-06') || device.name.includes('HC06'))) {
+                        logDebug("Using HC-06 specific connection workarounds", true);
+                        
+                        // For HC-06, try again with a delay
+                        return new Promise(resolve => setTimeout(resolve, 1000))
+                            .then(() => {
+                                logDebug("Retrying connection after delay");
+                                return device.gatt.connect();
+                            })
+                            .then(server => {
+                                logDebug("Second connection attempt successful");
+                                return tryServices(server);
+                            })
+                            .catch(error => {
+                                logDebug(`HC-06 specific connection failed: ${error.message}`, true);
+                                updateScanButtonState(false);
+                                throw error;
+                            });
+                    } else {
+                        updateScanButtonState(false);
+                        throw error;
+                    }
+                });
+        }
+
+        function tryServices(server) {
+            logDebug("Attempting to discover services and characteristics");
+            
+            // For the HC-06, we can try a set of common service UUIDs
+            const serviceUUIDs = [
+                '0000ffe0-0000-1000-8000-00805f9b34fb', // Common HC-06 service UUID
+                '0000fff0-0000-1000-8000-00805f9b34fb', // Alternative service
+                '0000ffb0-0000-1000-8000-00805f9b34fb'  // Another possible service
+            ];
+            
+            let primaryService = null;
+            let characteristic = null;
+            
+            // Try each service until we find one
+            return tryNextService(server, serviceUUIDs, 0)
+                .then(result => {
+                    primaryService = result.service;
+                    logDebug(`Found primary service: ${primaryService.uuid}`);
+                    return tryCharacteristics(primaryService);
+                })
+                .then(foundCharacteristic => {
+                    characteristic = foundCharacteristic;
+                    logDebug(`Found characteristic: ${characteristic.uuid}`);
+                    
+                    // Set up notification handling
+                    return setupNotifications(characteristic);
+                })
+                .then(() => {
+                    // Update UI
+                    document.getElementById('connectionStatus').textContent = 'Connected';
+                    document.getElementById('connectionStatus').className = 'status-connected';
+                    updateScanButtonState(false);
+                    
+                    // Return the connected objects for further use
+                    return {
+                        service: primaryService,
+                        characteristic: characteristic
+                    };
+                })
+                .catch(error => {
+                    logDebug(`Error during service discovery: ${error.message}`, true);
+                    updateScanButtonState(false);
+                    throw error;
+                });
+        }
+
+        // Helper to try services one by one
+        function tryNextService(server, serviceUUIDs, index) {
+            if (index >= serviceUUIDs.length) {
+                return Promise.reject(new Error("No compatible services found"));
+            }
+            
+            logDebug(`Trying service UUID: ${serviceUUIDs[index]}`);
+            return server.getPrimaryService(serviceUUIDs[index])
+                .then(service => {
+                    return { service, index };
+                })
+                .catch(error => {
+                    logDebug(`Service ${serviceUUIDs[index]} not found, trying next...`);
+                    return tryNextService(server, serviceUUIDs, index + 1);
+                });
+        }
+
+        // Try to find appropriate characteristics
+        function tryCharacteristics(service) {
+            logDebug("Discovering characteristics...");
+            
+            // Common characteristic UUIDs for HC-06
+            const characteristicUUIDs = [
+                '0000ffe1-0000-1000-8000-00805f9b34fb', // Common HC-06 characteristic
+                '0000fff1-0000-1000-8000-00805f9b34fb', // Alternative
+                '0000ffb1-0000-1000-8000-00805f9b34fb'  // Another possibility
+            ];
+            
+            return service.getCharacteristics()
+                .then(characteristics => {
+                    logDebug(`Found ${characteristics.length} characteristics`);
+                    
+                    if (characteristics.length === 0) {
+                        // If no characteristics found, try explicit UUIDs
+                        return tryNextCharacteristic(service, characteristicUUIDs, 0);
+                    }
+                    
+                    // For HC-06 modules, often there's just one characteristic
+                    if (characteristics.length === 1) {
+                        return characteristics[0];
+                    }
+                    
+                    // Try to find a characteristic with notify property
+                    const notifyCharacteristic = characteristics.find(c => {
+                        const properties = c.properties;
+                        return properties.notify || properties.indicate;
+                    });
+                    
+                    if (notifyCharacteristic) {
+                        return notifyCharacteristic;
+                    }
+                    
+                    // If no notify characteristic found, just use the first one
+                    return characteristics[0];
+                })
+                .catch(error => {
+                    logDebug(`Error discovering characteristics: ${error.message}`, true);
+                    // Try explicit characteristic UUIDs as fallback
+                    return tryNextCharacteristic(service, characteristicUUIDs, 0);
+                });
+        }
+
+        // Try to get characteristics one by one
+        function tryNextCharacteristic(service, characteristicUUIDs, index) {
+            if (index >= characteristicUUIDs.length) {
+                return Promise.reject(new Error("No compatible characteristics found"));
+            }
+            
+            logDebug(`Trying characteristic UUID: ${characteristicUUIDs[index]}`);
+            return service.getCharacteristic(characteristicUUIDs[index])
+                .then(characteristic => {
+                    return characteristic;
+                })
+                .catch(error => {
+                    logDebug(`Characteristic ${characteristicUUIDs[index]} not found, trying next...`);
+                    return tryNextCharacteristic(service, characteristicUUIDs, index + 1);
+                });
+        }
+
+        // Set up notifications on the characteristic
+        function setupNotifications(characteristic) {
+            // Check if the characteristic has notification property
+            if (characteristic.properties.notify) {
+                logDebug('Setting up notifications');
+                return characteristic.startNotifications()
+                    .then(() => {
+                        logDebug('Notifications started');
+                        characteristic.addEventListener('characteristicvaluechanged', handleNotification);
+                    })
+                    .catch(error => {
+                        logDebug(`Error starting notifications: ${error.message}, falling back to polling`, true);
+                        setupCharacteristicPolling(characteristic);
+                    });
+            } else {
+                logDebug('Characteristic does not support notifications, using polling');
+                setupCharacteristicPolling(characteristic);
+                return Promise.resolve();
+            }
+        }
+
+        // Handle incoming notifications from the device
+        function handleNotification(event) {
+            const value = event.target.value;
+            const decoder = new TextDecoder('utf-8');
+            const data = decoder.decode(value);
+            
+            logDebug(`Received data: ${data}`);
+            
+            // Process the received data as needed
+            // For HC-06 modules that send joystick data, parse it here
+            try {
+                processJoystickData(data);
+            } catch (e) {
+                logDebug(`Error processing data: ${e.message}`);
+            }
+        }
+
+        function connect() {
+            // Check if we're already connected
+            if (isConnected) {
+                disconnect();
+                return;
+            }
+
+            // Reset any existing state
+            resetState();
+            
+            const options = {
+                filters: [
+                    { services: ['0000ffe0-0000-1000-8000-00805f9b34fb'] },  // Common HC-06 service
+                    { namePrefix: 'HC-' },                                  // HC-05 and HC-06 devices
+                    { namePrefix: 'JDY' }                                   // JDY modules (similar to HC-06)
+                ],
+                optionalServices: [
+                    '0000ffe0-0000-1000-8000-00805f9b34fb',
+                    '0000fff0-0000-1000-8000-00805f9b34fb',
+                    '0000ffb0-0000-1000-8000-00805f9b34fb'
+                ]
+            };
+
+            logDebug('Requesting Bluetooth Device...');
+            navigator.bluetooth.requestDevice(options)
+                .then(device => {
+                    bluetoothDevice = device;
+                    logDebug('Found ' + device.name);
+                    logDebug('Connecting to GATT Server...');
+                    device.addEventListener('gattserverdisconnected', onDisconnected);
+                    return device.gatt.connect();
+                })
+                .then(server => {
+                    logDebug('Connected to GATT server');
+                    gattServer = server;
+                    
+                    // Use our enhanced tryServices function for HC-06 compatibility
+                    return tryServices(server);
+                })
+                .then(serviceResult => {
+                    logDebug(`Using service: ${serviceResult.service.uuid}`);
+                    
+                    // Find appropriate characteristics
+                    return tryCharacteristics(serviceResult.service);
+                })
+                .then(characteristic => {
+                    joystickCharacteristic = characteristic;
+                    logDebug(`Found characteristic: ${characteristic.uuid}`);
+                    
+                    // Set up notifications or polling
+                    return setupNotifications(characteristic);
+                })
+                .then(() => {
+                    // Mark as connected and update UI
+                    isConnected = true;
+                    debugElement.textContent = 'Connected';
+                    debugElement.style.color = 'green';
+                    connectBtn.textContent = 'Disconnect';
+                    disconnectBtn.disabled = false;
+                    
+                    // Add a manual/auto mode toggle button if it doesn't exist
+                    const existingToggle = document.getElementById('toggle-mode-button');
+                    if (!existingToggle) {
+                        const toggleButton = document.createElement('button');
+                        toggleButton.id = 'toggle-mode-button';
+                        toggleButton.textContent = 'Enable Manual Mode';
+                        toggleButton.style.padding = '8px 16px';
+                        toggleButton.style.margin = '8px 0';
+                        toggleButton.style.backgroundColor = '#4CAF50';
+                        toggleButton.style.color = 'white';
+                        toggleButton.style.border = 'none';
+                        toggleButton.style.borderRadius = '4px';
+                        toggleButton.style.cursor = 'pointer';
+                        
+                        // Insert before the debug element
+                        debugElement.parentNode.insertBefore(toggleButton, debugElement);
+                        
+                        // Add click handler to toggle manual/auto mode
+                        toggleButton.addEventListener('click', () => {
+                            manualMode = !manualMode;
+                            toggleButton.textContent = manualMode ? 'Enable Auto Mode' : 'Enable Manual Mode';
+                            toggleButton.style.backgroundColor = manualMode ? '#9E9E9E' : '#4CAF50';
+                            
+                            if (manualMode) {
+                                setupKeyboardHandler();
+                                debugElement.innerHTML += '<br>Manual mode enabled. Use arrow keys to control, space for button.';
+                            } else {
+                                // Remove keyboard handler if exists
+                                if (keyboardHandler) {
+                                    document.removeEventListener('keydown', keyboardHandler.keydown);
+                                    document.removeEventListener('keyup', keyboardHandler.keyup);
+                                    keyboardHandler = null;
+                                }
+                                debugElement.innerHTML += '<br>Auto mode enabled. Using HC-06 data.';
+                            }
+                        });
+                    }
+                    
+                    logDebug('Ready to communicate');
+                })
+                .catch(error => {
+                    logDebug('Connection error: ' + error, true);
+                    isConnected = false;
+                    debugElement.textContent = 'Error: ' + error.message;
+                    debugElement.style.color = 'red';
+                    
+                    // Handle Mac-specific issues
+                    if (navigator.platform.includes('Mac') && 
+                        (error.message.includes('Unsupported') || error.message.includes('timeout'))) {
+                        debugElement.innerHTML += '<br>This appears to be a Mac-specific HC-06 issue. Trying keyboard mode...';
+                        manualMode = true;
+                        setupKeyboardHandler();
+                        
+                        // Add a visual indicator that we're in manual mode
+                        const manualModeIndicator = document.createElement('div');
+                        manualModeIndicator.textContent = 'MANUAL MODE';
+                        manualModeIndicator.style.backgroundColor = '#FF9800';
+                        manualModeIndicator.style.color = 'white';
+                        manualModeIndicator.style.padding = '5px 10px';
+                        manualModeIndicator.style.borderRadius = '3px';
+                        manualModeIndicator.style.margin = '10px 0';
+                        manualModeIndicator.style.textAlign = 'center';
+                        manualModeIndicator.style.fontWeight = 'bold';
+                        
+                        debugElement.parentNode.insertBefore(manualModeIndicator, debugElement);
+                        
+                        // Update connect button to reflect manual mode
+                        connectBtn.textContent = 'Using Keyboard';
+                        connectBtn.style.backgroundColor = '#FF9800';
+                    }
+                });
+        }
+        
+        function resetState() {
+            bluetoothDevice = null;
+            joystickCharacteristic = null;
+            isConnected = false;
+            
+            // Reset the display
+            debugElement.textContent = 'Connecting...';
+            debugElement.style.color = 'yellow';
+            
+            // Clear any polling
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+        
+        // HC-06 specific service discovery helper - tries multiple common HC-06 services
+        async function tryServices(server) {
+            // Common service UUIDs for HC-06 modules
+            const serviceUUIDs = [
+                '0000ffe0-0000-1000-8000-00805f9b34fb', // Most common HC-06 service
+                '0000fff0-0000-1000-8000-00805f9b34fb', // Alternative service
+                '0000ffb0-0000-1000-8000-00805f9b34fb'  // Another alternative
+            ];
+            
+            // Some HC-06 clones might use a custom service
+            const genericService = await server.getPrimaryServices()
+                .then(services => {
+                    if (services.length > 0) {
+                        logDebug(`Found ${services.length} services, using first one`);
+                        return { service: services[0], generic: true };
+                    }
+                    throw new Error('No services found');
+                })
+                .catch(error => {
+                    logDebug(`Error getting all services: ${error.message}`, true);
+                    return null;
+                });
+            
+            if (genericService) return genericService;
+            
+            // Try each known service
+            for (const uuid of serviceUUIDs) {
+                try {
+                    logDebug(`Trying service: ${uuid}`);
+                    const service = await server.getPrimaryService(uuid);
+                    return { service, generic: false };
+                } catch (error) {
+                    logDebug(`Service ${uuid} not found: ${error.message}`);
+                }
+            }
+            
+            throw new Error('No compatible services found');
+        }
+        
+        // HC-06 specific characteristic discovery helper
+        async function tryCharacteristics(service) {
+            // Known characteristic UUIDs for HC-06
+            const charUUIDs = [
+                '0000ffe1-0000-1000-8000-00805f9b34fb', // Most common
+                '0000fff1-0000-1000-8000-00805f9b34fb', // Alternative
+                '0000ffb1-0000-1000-8000-00805f9b34fb'  // Another alternative
+            ];
+            
+            // First try to get all characteristics
+            try {
+                const characteristics = await service.getCharacteristics();
+                if (characteristics.length > 0) {
+                    // Find one that supports the operations we need
+                    const supportedChar = characteristics.find(c => 
+                        c.properties.notify || c.properties.read || c.properties.write);
+                    
+                    if (supportedChar) {
+                        logDebug(`Found suitable characteristic: ${supportedChar.uuid}`);
+                        return supportedChar;
+                    }
+                    
+                    // If no suitable characteristic, just return the first one
+                    logDebug(`Using first available characteristic: ${characteristics[0].uuid}`);
+                    return characteristics[0];
+                }
+            } catch (error) {
+                logDebug(`Error getting all characteristics: ${error.message}`, true);
+            }
+            
+            // Try each known characteristic
+            for (const uuid of charUUIDs) {
+                try {
+                    logDebug(`Trying characteristic: ${uuid}`);
+                    return await service.getCharacteristic(uuid);
+                } catch (error) {
+                    logDebug(`Characteristic ${uuid} not found: ${error.message}`);
+                }
+            }
+            
+            throw new Error('No compatible characteristics found');
+        }
+    </script>
+</body>
+</html> 

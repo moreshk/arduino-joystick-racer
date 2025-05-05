@@ -1,8 +1,9 @@
 {
-  "name": "my-three-app",
+  "name": "three-usb-joystick",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
+  "description": "Three.js application with USB Serial joystick control",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -10,5 +11,8 @@
   },
   "devDependencies": {
     "vite": "^6.3.1"
+  },
+  "dependencies": {
+    "three": "^0.162.0"
   }
 }
