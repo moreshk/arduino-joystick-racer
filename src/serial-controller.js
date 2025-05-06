@@ -1,5 +1,5 @@
 /**
- * Serial Joystick Controller for the Pacman Game
+ * Serial Joystick Controller for the 3D Airplane Game
  * 
  * This module provides functionality to connect to an Arduino-based joystick
  * using the Web Serial API.
@@ -16,9 +16,17 @@ class SerialController {
     this.buffer = '';
     
     // Joystick values
-    this.joystickX = 512;
-    this.joystickY = 512;
-    this.buttonPressed = false;
+    this.joystickX = 512;  // Roll (left/right banking)
+    this.joystickY = 512;  // Pitch (up/down)
+    this.buttonPressed = false; // Boost
+    
+    // Normalized values (-1 to 1)
+    this.roll = 0;  // Banking left/right
+    this.pitch = 0; // Up/down
+    
+    // Manual calibration offsets (can be adjusted if joystick has bias)
+    this.manualOffsetX = 0;
+    this.manualOffsetY = 0;
     
     // Callback function to process joystick data
     this.onJoystickData = null;
@@ -28,6 +36,24 @@ class SerialController {
     
     // Manual mode flag for keyboard fallback
     this.manualMode = false;
+
+    // Debug flags
+    this.debugElement = null;
+    this.showRawValues = true; // Shows raw values to help diagnose issues
+
+    // Deadzone values
+    this.deadzone = 0.15; // Reduced from 0.20 to allow more sensitivity
+
+    // Exponential curve strength (higher = more fine control in center, more response at edges)
+    this.exponentialFactor = 1.6; // Reduced from 1.8 for more linear response
+    
+    // Moving average values for smoother input - reduced for more responsiveness
+    this.rollHistory = [0, 0, 0]; // Reduced from 4 values
+    this.pitchHistory = [0, 0, 0]; // Reduced from 4 values
+    this.historyIndex = 0;
+    
+    // Keyboard control enhanced sensitivity for testing
+    this.keyboardSensitivity = 0.7; // Increased from 0.5
   }
   
   /**
@@ -35,22 +61,22 @@ class SerialController {
    * @returns {Promise} Resolves when connected, rejects on error
    */
   async connect() {
-    const debugElement = document.getElementById('joystick-debug');
+    this.debugElement = document.getElementById('joystick-debug');
     
     if (!navigator.serial) {
         const errorMsg = "Web Serial API is not available. Please use Chrome or Edge browser.";
         console.error(errorMsg);
-        if (debugElement) {
-            debugElement.textContent = errorMsg;
-            debugElement.style.color = 'red';
+        if (this.debugElement) {
+            this.debugElement.textContent = errorMsg;
+            this.debugElement.style.color = 'red';
         }
         throw new Error(errorMsg);
     }
 
     try {
-        if (debugElement) {
-            debugElement.textContent = 'Select your Arduino Serial port from the dialog...';
-            debugElement.style.color = 'yellow';
+        if (this.debugElement) {
+            this.debugElement.textContent = 'Select your Arduino Serial port from the dialog...';
+            this.debugElement.style.color = 'yellow';
         }
         
         console.log('Requesting Serial Device...');
@@ -62,9 +88,9 @@ class SerialController {
         await this.port.open({ baudRate: 9600 });
         
         console.log('Serial port opened:', this.port);
-        if (debugElement) {
-            debugElement.textContent = 'Serial port connected. Starting data read...';
-            debugElement.style.color = 'yellow';
+        if (this.debugElement) {
+            this.debugElement.textContent = 'Serial port connected. Starting data read...';
+            this.debugElement.style.color = 'yellow';
         }
         
         // Start reading data from the port
@@ -73,9 +99,12 @@ class SerialController {
         // Set connected flag
         this.connected = true;
         
-        if (debugElement) {
-            debugElement.textContent = 'Serial joystick connected and reading data';
-            debugElement.style.color = 'lime';
+        if (this.debugElement) {
+            this.debugElement.textContent = 'Serial joystick connected and reading data';
+            this.debugElement.style.color = 'lime';
+            
+            // Add calibration controls
+            this.addCalibrateButton();
         }
         
         return true;
@@ -83,9 +112,9 @@ class SerialController {
     } catch (error) {
         console.error('Serial connection error:', error);
         
-        if (debugElement) {
-            debugElement.textContent = `Serial connection error: ${error.message}`;
-            debugElement.style.color = 'red';
+        if (this.debugElement) {
+            this.debugElement.textContent = `Serial connection error: ${error.message}`;
+            this.debugElement.style.color = 'red';
         }
         
         // If connection failed, offer keyboard control as fallback
@@ -94,6 +123,151 @@ class SerialController {
         // Rethrow the error
         throw error;
     }
+  }
+  
+  /**
+   * Add a calibrate button to the UI
+   */
+  addCalibrateButton() {
+    // Check if we already have a calibrate button
+    if (document.getElementById('calibrate-btn')) {
+      return;
+    }
+    
+    // Create calibrate button
+    const calibrateBtn = document.createElement('button');
+    calibrateBtn.id = 'calibrate-btn';
+    calibrateBtn.textContent = 'Recalibrate Joystick';
+    calibrateBtn.style.position = 'absolute';
+    calibrateBtn.style.bottom = '80px';
+    calibrateBtn.style.right = '20px';
+    calibrateBtn.style.padding = '8px 16px';
+    calibrateBtn.style.backgroundColor = '#ff9800';
+    calibrateBtn.style.color = 'white';
+    calibrateBtn.style.border = 'none';
+    calibrateBtn.style.borderRadius = '4px';
+    calibrateBtn.style.zIndex = '100';
+    
+    // Add click handler
+    calibrateBtn.addEventListener('click', () => {
+      this.calibrateJoystick();
+    });
+    
+    // Add to the game container
+    document.getElementById('game-container').appendChild(calibrateBtn);
+    
+    // Add calibration instructions
+    const instructions = document.createElement('div');
+    instructions.id = 'calibration-instructions';
+    instructions.textContent = 'You can also hold the joystick button for 2 seconds to recalibrate';
+    instructions.style.position = 'absolute';
+    instructions.style.bottom = '50px';
+    instructions.style.right = '20px';
+    instructions.style.padding = '5px';
+    instructions.style.backgroundColor = 'rgba(0,0,0,0.5)';
+    instructions.style.color = 'white';
+    instructions.style.fontSize = '12px';
+    instructions.style.borderRadius = '4px';
+    instructions.style.zIndex = '100';
+    
+    // Add to the game container
+    document.getElementById('game-container').appendChild(instructions);
+    
+    // Add deadzone adjustment buttons
+    this.addDeadzoneControls();
+  }
+  
+  /**
+   * Add deadzone adjustment controls
+   */
+  addDeadzoneControls() {
+    // Create container for deadzone controls
+    const container = document.createElement('div');
+    container.id = 'deadzone-controls';
+    container.style.position = 'absolute';
+    container.style.bottom = '120px';
+    container.style.right = '20px';
+    container.style.backgroundColor = 'rgba(0,0,0,0.5)';
+    container.style.padding = '8px';
+    container.style.borderRadius = '4px';
+    container.style.zIndex = '100';
+    
+    // Create label
+    const label = document.createElement('div');
+    label.textContent = `Deadzone: ${this.deadzone.toFixed(2)}`;
+    label.id = 'deadzone-label';
+    label.style.marginBottom = '8px';
+    label.style.color = 'white';
+    
+    // Create increase button
+    const increaseBtn = document.createElement('button');
+    increaseBtn.textContent = '+';
+    increaseBtn.style.marginRight = '8px';
+    increaseBtn.style.width = '30px';
+    increaseBtn.style.height = '30px';
+    
+    // Create decrease button
+    const decreaseBtn = document.createElement('button');
+    decreaseBtn.textContent = '-';
+    decreaseBtn.style.width = '30px';
+    decreaseBtn.style.height = '30px';
+    
+    // Add click handlers
+    increaseBtn.addEventListener('click', () => {
+      this.deadzone = Math.min(0.5, this.deadzone + 0.05);
+      document.getElementById('deadzone-label').textContent = `Deadzone: ${this.deadzone.toFixed(2)}`;
+    });
+    
+    decreaseBtn.addEventListener('click', () => {
+      this.deadzone = Math.max(0.05, this.deadzone - 0.05);
+      document.getElementById('deadzone-label').textContent = `Deadzone: ${this.deadzone.toFixed(2)}`;
+    });
+    
+    // Assemble controls
+    container.appendChild(label);
+    container.appendChild(decreaseBtn);
+    container.appendChild(increaseBtn);
+    
+    // Add to game container
+    document.getElementById('game-container').appendChild(container);
+  }
+  
+  /**
+   * Manually calibrate the joystick
+   */
+  calibrateJoystick() {
+    if (!this.connected) return;
+    
+    // Get current values
+    const currentX = this.joystickX;
+    const currentY = this.joystickY;
+    
+    // Calculate how far off center these values are
+    const offsetX = 512 - currentX;
+    const offsetY = 512 - currentY;
+    
+    // Store these as manual offsets
+    this.manualOffsetX = offsetX;
+    this.manualOffsetY = offsetY;
+    
+    // Reset history arrays to avoid lingering values
+    this.rollHistory = [0, 0, 0];
+    this.pitchHistory = [0, 0, 0];
+    
+    if (this.debugElement) {
+      this.debugElement.textContent = `Joystick calibrated! Offsets: X=${offsetX}, Y=${offsetY}`;
+      this.debugElement.style.color = 'lime';
+      
+      // Reset to normal display after 3 seconds
+      setTimeout(() => {
+        if (this.connected) {
+          this.debugElement.textContent = `Roll: 0.00 | Pitch: 0.00 | Boost: OFF`;
+          this.debugElement.style.color = 'white';
+        }
+      }, 3000);
+    }
+    
+    console.log(`Joystick manually calibrated. Offsets: X=${offsetX}, Y=${offsetY}`);
   }
   
   /**
@@ -158,7 +332,53 @@ class SerialController {
       for (let i = 0; i < lines.length - 1; i++) {
         const line = lines[i].trim();
         if (line) {
-          this.processJoystickData(line);
+          // Process Arduino's startup and calibration messages
+          if (line.includes("IMPORTANT:") || 
+              line.includes("Calibrating") || 
+              line.includes("Calibration") || 
+              line.includes("calibrated") ||
+              line.includes("Ready")) {
+            console.log('Arduino message:', line);
+            
+            // If this is a calibration message, update our UI
+            if (line.includes("Calibration complete") || line.includes("calibrated")) {
+              if (this.debugElement) {
+                this.debugElement.textContent = 'Arduino joystick calibrated';
+                this.debugElement.style.color = 'lime';
+                
+                // Reset manual offsets since the Arduino has calibrated
+                this.manualOffsetX = 0;
+                this.manualOffsetY = 0;
+                
+                // Reset history arrays
+                this.rollHistory = [0, 0, 0];
+                this.pitchHistory = [0, 0, 0];
+                
+                // Reset to normal display after 3 seconds
+                setTimeout(() => {
+                  if (this.connected) {
+                    this.debugElement.textContent = `Roll: 0.00 | Pitch: 0.00 | Boost: OFF`;
+                    this.debugElement.style.color = 'white';
+                  }
+                }, 3000);
+              }
+            }
+            continue;
+          }
+          
+          // Skip other debug lines from Arduino
+          if (line.includes('Debug Info:') || 
+              line.startsWith('Raw') || 
+              line.includes('Center') || 
+              line.includes('Offset')) {
+            console.log('Arduino debug:', line);
+            continue;
+          }
+          
+          // Process data line (expected format: X,Y,BUTTON)
+          if (line.includes(',')) {
+            this.processJoystickData(line);
+          }
         }
       }
       
@@ -186,240 +406,260 @@ class SerialController {
         
         // Validate parsed values - must be numbers
         if (!isNaN(x) && !isNaN(y)) {
-          // Store the values
+          // Store the raw values
           this.joystickX = x;
           this.joystickY = y;
           this.buttonPressed = btn > 0;
           
-          // Generate normalized values (between -1 and 1)
-          const normalizedX = (x - 512) / 512;
-          const normalizedY = -(y - 512) / 512; // Y axis is inverted
+          // Apply manual calibration offsets
+          let calibratedX = x + this.manualOffsetX;
+          let calibratedY = y + this.manualOffsetY;
+          
+          // Clamp to valid range
+          calibratedX = Math.max(0, Math.min(1023, calibratedX));
+          calibratedY = Math.max(0, Math.min(1023, calibratedY));
+          
+          // Calculate normalized values (-1 to 1)
+          let rawRoll = (calibratedX - 512) / 512;
+          let rawPitch = (calibratedY - 512) / 512;
+          
+          // Apply deadzone - critical to eliminate drift
+          if (Math.abs(rawRoll) < this.deadzone) rawRoll = 0;
+          if (Math.abs(rawPitch) < this.deadzone) rawPitch = 0;
+          
+          // Apply input shaping - scale non-zero values to range properly from deadzone to 1.0
+          // This ensures smooth control from deadzone edge to maximum
+          if (rawRoll !== 0) {
+            const sign = Math.sign(rawRoll);
+            rawRoll = sign * (Math.abs(rawRoll) - this.deadzone) / (1 - this.deadzone);
+          }
+          
+          if (rawPitch !== 0) {
+            const sign = Math.sign(rawPitch);
+            rawPitch = sign * (Math.abs(rawPitch) - this.deadzone) / (1 - this.deadzone);
+          }
+          
+          // Add to the history array for moving average
+          this.rollHistory[this.historyIndex] = rawRoll;
+          this.pitchHistory[this.historyIndex] = rawPitch;
+          this.historyIndex = (this.historyIndex + 1) % this.rollHistory.length;
+          
+          // Calculate moving average for smoother inputs
+          let avgRoll = 0;
+          let avgPitch = 0;
+          for (let i = 0; i < this.rollHistory.length; i++) {
+            avgRoll += this.rollHistory[i];
+            avgPitch += this.pitchHistory[i];
+          }
+          avgRoll /= this.rollHistory.length;
+          avgPitch /= this.pitchHistory.length;
+          
+          // Set final values
+          this.roll = avgRoll;
+          this.pitch = avgPitch;
+          
+          // Apply exponential curve for finer control near center
+          if (this.roll !== 0) {
+            this.roll = Math.sign(this.roll) * Math.pow(Math.abs(this.roll), this.exponentialFactor);
+          }
+          
+          if (this.pitch !== 0) {
+            this.pitch = Math.sign(this.pitch) * Math.pow(Math.abs(this.pitch), this.exponentialFactor);
+          }
           
           // If we have a callback registered, send the data
           if (this.onJoystickData) {
             this.onJoystickData({
-              x: normalizedX,
-              y: normalizedY,
-              button: this.buttonPressed,
+              roll: this.roll,
+              pitch: this.pitch,
+              boost: this.buttonPressed,
               rawX: x,
-              rawY: y,
-              direction: this.getDirectionFromValues(normalizedX, normalizedY)
+              rawY: y
             });
           }
           
-          // Log to console for debugging
-          console.log(`Joystick data - X: ${normalizedX.toFixed(2)}, Y: ${normalizedY.toFixed(2)}, Button: ${this.buttonPressed ? 'Pressed' : 'Released'}`);
+          // Update debug element if it exists
+          if (this.debugElement) {
+            let debugText = `Roll: ${this.roll.toFixed(2)} | Pitch: ${this.pitch.toFixed(2)} | Boost: ${this.buttonPressed ? 'ON' : 'OFF'}`;
+            
+            // Add raw values if enabled
+            if (this.showRawValues) {
+              debugText += `\nRaw: X=${x}, Y=${y} | Calibrated: X=${calibratedX.toFixed(0)}, Y=${calibratedY.toFixed(0)}`;
+              debugText += `\nDeadzone: ${this.deadzone.toFixed(2)} | Offsets: X=${this.manualOffsetX}, Y=${this.manualOffsetY}`;
+            }
+            
+            this.debugElement.textContent = debugText;
+            this.debugElement.style.color = this.buttonPressed ? '#ffcc00' : 'white';
+          }
         }
       }
-    } catch (e) {
-      console.error('Error parsing joystick data:', e);
-    }
-  }
-  
-  /**
-   * Determine the direction based on joystick values
-   * @param {number} x - Normalized X value (-1 to 1)
-   * @param {number} y - Normalized Y value (-1 to 1)
-   * @returns {string} - Direction (UP, DOWN, LEFT, RIGHT, CENTER)
-   */
-  getDirectionFromValues(x, y) {
-    // Use a small threshold to prevent unwanted movements
-    const threshold = 0.1;
-    
-    if (Math.abs(x) <= threshold && Math.abs(y) <= threshold) {
-      return 'CENTER';
-    }
-    
-    // Determine primary direction based on which axis has larger value
-    if (Math.abs(x) > Math.abs(y)) {
-      return x > 0 ? 'RIGHT' : 'LEFT';
-    } else {
-      return y > 0 ? 'DOWN' : 'UP';
+    } catch (error) {
+      console.error('Error processing joystick data:', error);
     }
   }
   
   /**
    * Set up keyboard handlers for manual control
-   * @param {number} initialX - Initial X value (default 512)
-   * @param {number} initialY - Initial Y value (default 512)
-   * @param {number} initialButton - Initial button state (default 0)
    */
-  setupKeyboardHandlers(initialX = 512, initialY = 512, initialButton = 0) {
-    console.log('Setting up keyboard handlers for manual control');
-    
-    // Flag that we're in manual mode
+  setupKeyboardHandlers() {
+    // Set manual mode flag
     this.manualMode = true;
     
-    // Current joystick state
-    let simX = initialX;
-    let simY = initialY;
-    let simButton = initialButton;
+    // Initial values
+    let roll = 0;
+    let pitch = 0;
+    let boost = false;
     
-    // Track which keys are pressed
-    const keyState = {
-      ArrowUp: false,
-      ArrowDown: false,
+    // Track pressed keys
+    const keysPressed = {
       ArrowLeft: false,
       ArrowRight: false,
-      ' ': false // Space for button
+      ArrowUp: false,
+      ArrowDown: false,
+      ' ': false // Space for boost
     };
     
-    // Handler for key down events
+    // Keydown handler
     const keydownHandler = (event) => {
-      // Check if this is a key we're handling
-      if (event.key in keyState) {
-        // Prevent default browser behavior for these keys
-        event.preventDefault();
-        
-        // If state hasn't changed, don't process again
-        if (keyState[event.key] === true) return;
-        
+      // Only process keys we care about
+      if (keysPressed.hasOwnProperty(event.key)) {
         // Update key state
-        keyState[event.key] = true;
+        keysPressed[event.key] = true;
         
-        // Update simulated values based on key pressed
-        switch (event.key) {
-          case 'ArrowUp':
-            simY = 312; // Lower value = up
-            break;
-          case 'ArrowDown':
-            simY = 712; // Higher value = down
-            break;
-          case 'ArrowLeft':
-            simX = 312; // Lower value = left
-            break;
-          case 'ArrowRight':
-            simX = 712; // Higher value = right
-            break;
-          case ' ':  // Spacebar for button press
-            simButton = 1;
-            break;
+        // Calculate roll and pitch values with enhanced sensitivity
+        roll = 0;
+        pitch = 0;
+        
+        if (keysPressed.ArrowLeft) roll = -this.keyboardSensitivity;
+        if (keysPressed.ArrowRight) roll = this.keyboardSensitivity;
+        if (keysPressed.ArrowUp) pitch = -this.keyboardSensitivity;
+        if (keysPressed.ArrowDown) pitch = this.keyboardSensitivity;
+        
+        // Update boost state
+        boost = keysPressed[' '];
+        
+        // Call the callback with the current values
+        if (this.onJoystickData) {
+          this.onJoystickData({
+            roll: roll,
+            pitch: pitch,
+            boost: boost,
+            rawX: 512 + Math.round(roll * 512),
+            rawY: 512 + Math.round(pitch * 512)
+          });
         }
         
-        // Handle diagonal movement for better control
-        if (keyState['ArrowUp'] && keyState['ArrowLeft']) {
-          simX = 312;
-          simY = 312;
-        } else if (keyState['ArrowUp'] && keyState['ArrowRight']) {
-          simX = 712;
-          simY = 312;
-        } else if (keyState['ArrowDown'] && keyState['ArrowLeft']) {
-          simX = 312;
-          simY = 712;
-        } else if (keyState['ArrowDown'] && keyState['ArrowRight']) {
-          simX = 712;
-          simY = 712;
+        // Update debug element if it exists
+        const debugElement = document.getElementById('joystick-debug');
+        if (debugElement) {
+          debugElement.textContent = `Keyboard Control | Roll: ${roll.toFixed(2)} | Pitch: ${pitch.toFixed(2)} | Boost: ${boost ? 'ON' : 'OFF'}`;
+          debugElement.style.color = boost ? '#ffcc00' : 'white';
         }
         
-        // Process the simulated joystick data
-        this.processJoystickData(`${simX},${simY},${simButton}`);
+        // Prevent default actions for these keys (like scrolling)
+        event.preventDefault();
       }
     };
     
-    // Handler for key up events
+    // Keyup handler
     const keyupHandler = (event) => {
-      // Check if this is a key we're handling
-      if (event.key in keyState) {
-        // Prevent default browser behavior
-        event.preventDefault();
-        
+      // Only process keys we care about
+      if (keysPressed.hasOwnProperty(event.key)) {
         // Update key state
-        keyState[event.key] = false;
+        keysPressed[event.key] = false;
         
-        // Reset corresponding value based on key released
-        switch (event.key) {
-          case 'ArrowUp':
-          case 'ArrowDown':
-            // Only reset Y if both up and down are released
-            if (!keyState['ArrowUp'] && !keyState['ArrowDown']) {
-              simY = 512; // Center position
-            } else if (keyState['ArrowUp']) {
-              simY = 312; // Keep up direction
-            } else if (keyState['ArrowDown']) {
-              simY = 712; // Keep down direction
-            }
-            break;
-          case 'ArrowLeft':
-          case 'ArrowRight':
-            // Only reset X if both left and right are released
-            if (!keyState['ArrowLeft'] && !keyState['ArrowRight']) {
-              simX = 512; // Center position
-            } else if (keyState['ArrowLeft']) {
-              simX = 312; // Keep left direction
-            } else if (keyState['ArrowRight']) {
-              simX = 712; // Keep right direction
-            }
-            break;
-          case ' ':  // Spacebar release
-            simButton = 0;
-            break;
+        // Calculate roll and pitch values with enhanced sensitivity
+        roll = 0;
+        pitch = 0;
+        
+        if (keysPressed.ArrowLeft) roll = -this.keyboardSensitivity;
+        if (keysPressed.ArrowRight) roll = this.keyboardSensitivity;
+        if (keysPressed.ArrowUp) pitch = -this.keyboardSensitivity;
+        if (keysPressed.ArrowDown) pitch = this.keyboardSensitivity;
+        
+        // Update boost state
+        boost = keysPressed[' '];
+        
+        // Call the callback with the current values
+        if (this.onJoystickData) {
+          this.onJoystickData({
+            roll: roll,
+            pitch: pitch,
+            boost: boost,
+            rawX: 512 + Math.round(roll * 512),
+            rawY: 512 + Math.round(pitch * 512)
+          });
         }
         
-        // Process the updated joystick data
-        this.processJoystickData(`${simX},${simY},${simButton}`);
+        // Update debug element if it exists
+        const debugElement = document.getElementById('joystick-debug');
+        if (debugElement) {
+          debugElement.textContent = `Keyboard Control | Roll: ${roll.toFixed(2)} | Pitch: ${pitch.toFixed(2)} | Boost: ${boost ? 'ON' : 'OFF'}`;
+          debugElement.style.color = boost ? '#ffcc00' : 'white';
+        }
+        
+        // Prevent default actions for these keys
+        event.preventDefault();
       }
     };
     
-    // Register event handlers
+    // Register keyboard event listeners
     document.addEventListener('keydown', keydownHandler);
     document.addEventListener('keyup', keyupHandler);
     
-    // Store the handlers as properties for later removal
+    // Update debug element to show keyboard controls are active
+    const debugElement = document.getElementById('joystick-debug');
+    if (debugElement) {
+      debugElement.textContent = 'Using keyboard controls. Arrow keys to fly, Space for boost.';
+      debugElement.style.color = 'cyan';
+    }
+    
+    // Store references to the handlers for potential cleanup
     this.keydownHandler = keydownHandler;
     this.keyupHandler = keyupHandler;
-    
-    // Process initial center position
-    this.processJoystickData('512,512,0');
-    
-    console.log('Keyboard handler set up. Use arrow keys and spacebar.');
   }
   
   /**
-   * Disconnect from the serial port
+   * Disconnect from the serial device
    */
   async disconnect() {
-    // Stop the read loop
+    // Flag to stop the read loop
     this.readLoopRunning = false;
     
-    // Close the reader if it exists
-    if (this.reader) {
-      try {
+    try {
+      // Close the reader if it exists
+      if (this.reader) {
         await this.reader.cancel();
         this.reader = null;
-      } catch (error) {
-        console.error('Error canceling reader:', error);
       }
-    }
-    
-    // Close the port if it's open
-    if (this.port && this.port.readable) {
-      try {
+      
+      // Close the port if it exists
+      if (this.port) {
         await this.port.close();
         this.port = null;
-      } catch (error) {
-        console.error('Error closing serial port:', error);
       }
+      
+      // Update connection status
+      this.connected = false;
+      
+      // Update debug element if it exists
+      const debugElement = document.getElementById('joystick-debug');
+      if (debugElement) {
+        debugElement.textContent = 'Serial device disconnected';
+        debugElement.style.color = 'orange';
+      }
+      
+      console.log('Serial device disconnected');
+      
+      return true;
+    } catch (error) {
+      console.error('Error disconnecting from serial device:', error);
+      throw error;
     }
-    
-    // Remove keyboard handlers if active
-    if (this.keydownHandler) {
-      document.removeEventListener('keydown', this.keydownHandler);
-      this.keydownHandler = null;
-    }
-    if (this.keyupHandler) {
-      document.removeEventListener('keyup', this.keyupHandler);
-      this.keyupHandler = null;
-    }
-    
-    // Reset connection state
-    this.connected = false;
-    this.manualMode = false;
-    
-    console.log('Serial connection closed');
   }
   
   /**
-   * Set a callback function to receive joystick data
+   * Set the callback function for joystick data
    * @param {Function} callback - Function to call with joystick data
    */
   setJoystickDataCallback(callback) {
@@ -427,11 +667,11 @@ class SerialController {
   }
   
   /**
-   * Check if Web Serial API is supported in this browser
-   * @returns {boolean} - True if Web Serial API is supported
+   * Check if Web Serial API is supported in the current browser
+   * @returns {boolean} True if Web Serial API is supported
    */
   static isSupported() {
-    return navigator.serial !== undefined;
+    return 'serial' in navigator;
   }
 }
 
