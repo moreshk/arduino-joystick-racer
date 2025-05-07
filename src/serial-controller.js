@@ -34,6 +34,13 @@ class SerialController {
     // Connection status
     this.connected = false;
     
+    // Variables to handle disconnections and auto-reconnection
+    this.reconnecting = false;
+    this.lastUsedPortInfo = null;
+    
+    // Try to load last used port information from local storage
+    this.loadSavedPortInfo();
+    
     // Manual mode flag for keyboard fallback
     this.manualMode = false;
 
@@ -57,6 +64,150 @@ class SerialController {
   }
   
   /**
+   * Save the current port information to local storage
+   * @param {object} portInfo - The port.getInfo() object
+   */
+  savePortInfo(portInfo) {
+    if (portInfo) {
+      // Store this for future use
+      this.lastUsedPortInfo = portInfo;
+      
+      // Save to localStorage for persistence across page refreshes
+      try {
+        localStorage.setItem('lastUsedSerialPort', JSON.stringify({
+          usbVendorId: portInfo.usbVendorId,
+          usbProductId: portInfo.usbProductId
+        }));
+        console.log('Saved port info to local storage:', portInfo);
+      } catch (err) {
+        console.error('Failed to save port info to local storage:', err);
+      }
+    }
+  }
+  
+  /**
+   * Load saved port information from local storage
+   */
+  loadSavedPortInfo() {
+    try {
+      const savedPortInfo = localStorage.getItem('lastUsedSerialPort');
+      if (savedPortInfo) {
+        this.lastUsedPortInfo = JSON.parse(savedPortInfo);
+        console.log('Loaded saved port info:', this.lastUsedPortInfo);
+      }
+    } catch (err) {
+      console.error('Failed to load saved port info:', err);
+      this.lastUsedPortInfo = null;
+    }
+  }
+  
+  /**
+   * Try to connect to the last used serial port automatically
+   * @returns {Promise} Resolves when connected, rejects on error
+   */
+  async autoConnect() {
+    if (!this.lastUsedPortInfo) {
+      console.log('No saved port info available for auto-connect');
+      return false;
+    }
+    
+    if (!navigator.serial) {
+      console.error('Web Serial API is not available');
+      return false;
+    }
+    
+    try {
+      console.log('Attempting to auto-connect to last used port');
+      
+      // Get list of available ports
+      const ports = await navigator.serial.getPorts();
+      console.log('Available ports:', ports);
+      
+      // Find a port that matches our saved criteria
+      const matchingPort = ports.find(port => {
+        const info = port.getInfo();
+        return (
+          info.usbVendorId === this.lastUsedPortInfo.usbVendorId &&
+          info.usbProductId === this.lastUsedPortInfo.usbProductId
+        );
+      });
+      
+      if (matchingPort) {
+        console.log('Found matching port:', matchingPort);
+        await this.connectToPort(matchingPort);
+        return true;
+      } else {
+        console.log('No matching port found for auto-connect');
+        return false;
+      }
+    } catch (err) {
+      console.error('Error during auto-connect:', err);
+      return false;
+    }
+  }
+  
+  /**
+   * Connect to a specific port directly
+   * @param {SerialPort} port - The port to connect to
+   * @returns {Promise} Resolves when connected, rejects on error
+   */
+  async connectToPort(port) {
+    try {
+      this.port = port;
+      
+      // Save the port info for future auto-connects
+      this.savePortInfo(port.getInfo());
+      
+      // Configure the port
+      await this.port.open({
+        baudRate: 9600,
+        dataBits: 8,
+        stopBits: 1,
+        parity: 'none',
+        flowControl: 'none'
+      });
+      
+      console.log('Serial port opened successfully');
+      
+      this.connected = true;
+      
+      // Show and update the debug element
+      this.debugElement = document.getElementById('joystick-debug');
+      if (this.debugElement) {
+        this.debugElement.style.display = 'block';
+        this.updateDebugElement('Connected to joystick controller', 'lime');
+      }
+      
+      // Create controls and start reading
+      this.createControlUI();
+      this.startReadLoop();
+      
+      // Remove any UI connection buttons when connected
+      const connectBtn = document.getElementById('connect-controller-btn');
+      if (connectBtn) connectBtn.remove();
+      
+      const startWithoutBtn = document.getElementById('start-without-btn');
+      if (startWithoutBtn) startWithoutBtn.remove();
+      
+      // Dispatch event after successful connection
+      document.dispatchEvent(new Event('controller-connected'));
+      
+      return true;
+    } catch (err) {
+      console.error('Failed to connect to port:', err);
+      
+      // Show failure in debug element
+      this.debugElement = document.getElementById('joystick-debug');
+      if (this.debugElement) {
+        this.debugElement.style.display = 'block';
+        this.updateDebugElement('Failed to connect: ' + err.message, 'red');
+      }
+      
+      throw err;
+    }
+  }
+  
+  /**
    * Connect to the Serial joystick device
    * @returns {Promise} Resolves when connected, rejects on error
    */
@@ -64,102 +215,75 @@ class SerialController {
     this.debugElement = document.getElementById('joystick-debug');
     
     if (!navigator.serial) {
-        const errorMsg = "Web Serial API is not available. Please use Chrome or Edge browser.";
-        console.error(errorMsg);
-        if (this.debugElement) {
-            this.debugElement.textContent = errorMsg;
-            this.debugElement.style.color = 'red';
-        }
-        throw new Error(errorMsg);
+      const errorMsg = "Web Serial API is not available. Please use Chrome or Edge browser.";
+      console.error(errorMsg);
+      this.updateDebugElement(errorMsg, 'red');
+      throw new Error(errorMsg);
     }
-
+    
+    // Try to auto-connect first
+    if (await this.autoConnect()) {
+      console.log('Auto-connect successful');
+      return true;
+    }
+    
+    // If auto-connect fails, prompt user to select a port
     try {
-        if (this.debugElement) {
-            this.debugElement.textContent = 'Select your Arduino Serial port from the dialog...';
-            this.debugElement.style.color = 'yellow';
-        }
-        
-        console.log('Requesting Serial Device...');
-        
-        // Request a serial port
-        this.port = await navigator.serial.requestPort();
-        
-        // Open the port with appropriate settings for Arduino (9600 baud)
-        await this.port.open({ baudRate: 9600 });
-        
-        console.log('Serial port opened:', this.port);
-        if (this.debugElement) {
-            this.debugElement.textContent = 'Serial port connected. Starting data read...';
-            this.debugElement.style.color = 'yellow';
-        }
-        
-        // Start reading data from the port
-        this.startReadingData();
-        
-        // Set connected flag
-        this.connected = true;
-        
-        if (this.debugElement) {
-            this.debugElement.textContent = 'Serial joystick connected and reading data';
-            this.debugElement.style.color = 'lime';
-            
-            // Add calibration controls
-            this.addCalibrateButton();
-            
-            // Auto-calibrate with default values that work well
-            // Wait a moment for initial data to come in
-            setTimeout(() => {
-              this.autoCalibrate();
-            }, 500);
-        }
-        
-        return true;
-        
-    } catch (error) {
-        console.error('Serial connection error:', error);
-        
-        if (this.debugElement) {
-            this.debugElement.textContent = `Serial connection error: ${error.message}`;
-            this.debugElement.style.color = 'red';
-        }
-        
-        // If connection failed, offer keyboard control as fallback
-        this.setupKeyboardHandlers();
-        
-        // Rethrow the error
-        throw error;
+      this.updateDebugElement('Select your Arduino Serial port from the dialog...', 'yellow');
+      
+      console.log('Requesting Serial Device...');
+      this.port = await navigator.serial.requestPort();
+      
+      return await this.connectToPort(this.port);
+    } catch (err) {
+      console.error('Failed to connect:', err);
+      this.updateDebugElement('Failed to connect: ' + err.message, 'red');
+      throw err;
     }
   }
   
   /**
-   * Auto-calibrate with default values that work well for most joysticks
+   * Process the buffer and extract complete lines of data
+   */
+  processBuffer() {
+    // Split the buffer by newline characters
+    const lines = this.buffer.split('\n');
+    
+    // If we don't have a complete line yet, return
+    if (lines.length <= 1) return;
+    
+    // Keep the last (potentially incomplete) line in the buffer
+    this.buffer = lines.pop();
+    
+    // Process all complete lines
+    for (const line of lines) {
+      // Skip empty lines
+      if (line.trim() === '') continue;
+      
+      // Process this line of data
+      this.processJoystickData(line);
+    }
+  }
+  
+  /**
+   * Perform automatic calibration based on default values
    */
   autoCalibrate() {
     if (!this.connected) return;
     
-    console.log("Auto-calibrating joystick with default values");
-    
-    // Use default calibration values that work well
-    this.manualOffsetX = 187;
-    this.manualOffsetY = 193;
+    // Use default offsets that work well for most joysticks
+    this.manualOffsetX = 187;  // Default X offset
+    this.manualOffsetY = 193;  // Default Y offset
     
     // Reset history arrays to avoid lingering values
     this.rollHistory = [0, 0, 0];
     this.pitchHistory = [0, 0, 0];
     this.historyIndex = 0;
     
-    if (this.debugElement) {
-      this.debugElement.textContent = `Joystick auto-calibrated with default values`;
-      this.debugElement.style.color = 'lime';
-      
-      // Reset to normal display after 3 seconds
-      setTimeout(() => {
-        if (this.connected) {
-          this.debugElement.textContent = `Roll: 0.00 | Pitch: 0.00 | Boost: OFF`;
-          this.debugElement.style.color = 'white';
-        }
-      }, 3000);
-    }
+    this.updateDebugElement('Joystick automatically calibrated with default values', 'lime');
+    
+    // Also dispatch an event to notify game that calibration has changed
+    document.dispatchEvent(new Event('joystick-calibrated'));
   }
   
   /**
@@ -167,106 +291,43 @@ class SerialController {
    */
   addCalibrateButton() {
     // Check if we already have a calibrate button
-    if (document.getElementById('calibrate-btn')) {
+    if (document.getElementById('joystick-calibrate-btn') || document.getElementById('calibrate-btn')) {
       return;
     }
     
     // Create calibrate button
     const calibrateBtn = document.createElement('button');
-    calibrateBtn.id = 'calibrate-btn';
+    calibrateBtn.id = 'joystick-calibrate-btn';
     calibrateBtn.textContent = 'Recalibrate Joystick';
-    calibrateBtn.style.position = 'absolute';
-    calibrateBtn.style.bottom = '80px';
-    calibrateBtn.style.right = '20px';
+    calibrateBtn.style.position = 'fixed';
+    calibrateBtn.style.bottom = '10px';
+    calibrateBtn.style.right = '10px';
     calibrateBtn.style.padding = '8px 16px';
     calibrateBtn.style.backgroundColor = '#ff9800';
     calibrateBtn.style.color = 'white';
     calibrateBtn.style.border = 'none';
     calibrateBtn.style.borderRadius = '4px';
     calibrateBtn.style.zIndex = '100';
+    calibrateBtn.style.cursor = 'pointer';
+    
+    // Add hover effect
+    calibrateBtn.onmouseover = () => {
+      calibrateBtn.style.backgroundColor = '#ff7300';
+    };
+    calibrateBtn.onmouseout = () => {
+      calibrateBtn.style.backgroundColor = '#ff9800';
+    };
     
     // Add click handler
     calibrateBtn.addEventListener('click', () => {
       this.calibrateJoystick();
     });
     
-    // Add to the game container
-    document.getElementById('game-container').appendChild(calibrateBtn);
+    // Add to the page directly instead of game container
+    document.body.appendChild(calibrateBtn);
     
-    // Add calibration instructions
-    const instructions = document.createElement('div');
-    instructions.id = 'calibration-instructions';
-    instructions.textContent = 'You can also hold the joystick button for 2 seconds to recalibrate';
-    instructions.style.position = 'absolute';
-    instructions.style.bottom = '50px';
-    instructions.style.right = '20px';
-    instructions.style.padding = '5px';
-    instructions.style.backgroundColor = 'rgba(0,0,0,0.5)';
-    instructions.style.color = 'white';
-    instructions.style.fontSize = '12px';
-    instructions.style.borderRadius = '4px';
-    instructions.style.zIndex = '100';
-    
-    // Add to the game container
-    document.getElementById('game-container').appendChild(instructions);
-    
-    // Add deadzone adjustment buttons
-    this.addDeadzoneControls();
-  }
-  
-  /**
-   * Add deadzone adjustment controls
-   */
-  addDeadzoneControls() {
-    // Create container for deadzone controls
-    const container = document.createElement('div');
-    container.id = 'deadzone-controls';
-    container.style.position = 'absolute';
-    container.style.bottom = '120px';
-    container.style.right = '20px';
-    container.style.backgroundColor = 'rgba(0,0,0,0.5)';
-    container.style.padding = '8px';
-    container.style.borderRadius = '4px';
-    container.style.zIndex = '100';
-    
-    // Create label
-    const label = document.createElement('div');
-    label.textContent = `Deadzone: ${this.deadzone.toFixed(2)}`;
-    label.id = 'deadzone-label';
-    label.style.marginBottom = '8px';
-    label.style.color = 'white';
-    
-    // Create increase button
-    const increaseBtn = document.createElement('button');
-    increaseBtn.textContent = '+';
-    increaseBtn.style.marginRight = '8px';
-    increaseBtn.style.width = '30px';
-    increaseBtn.style.height = '30px';
-    
-    // Create decrease button
-    const decreaseBtn = document.createElement('button');
-    decreaseBtn.textContent = '-';
-    decreaseBtn.style.width = '30px';
-    decreaseBtn.style.height = '30px';
-    
-    // Add click handlers
-    increaseBtn.addEventListener('click', () => {
-      this.deadzone = Math.min(0.5, this.deadzone + 0.05);
-      document.getElementById('deadzone-label').textContent = `Deadzone: ${this.deadzone.toFixed(2)}`;
-    });
-    
-    decreaseBtn.addEventListener('click', () => {
-      this.deadzone = Math.max(0.05, this.deadzone - 0.05);
-      document.getElementById('deadzone-label').textContent = `Deadzone: ${this.deadzone.toFixed(2)}`;
-    });
-    
-    // Assemble controls
-    container.appendChild(label);
-    container.appendChild(decreaseBtn);
-    container.appendChild(increaseBtn);
-    
-    // Add to game container
-    document.getElementById('game-container').appendChild(container);
+    // We don't need to add separate instructions
+    // or deadzone controls, to keep UI clean
   }
   
   /**
@@ -309,48 +370,104 @@ class SerialController {
   }
   
   /**
+   * Update the debug element text and color
+   * @param {string} message - The message to display
+   * @param {string} color - The color to use (e.g., 'red', 'lime', 'yellow')
+   */
+  updateDebugElement(message, color = 'white') {
+    if (this.debugElement) {
+      this.debugElement.textContent = message;
+      this.debugElement.style.color = color;
+    }
+  }
+
+  /**
    * Start reading data from the serial port
    */
-  async startReadingData() {
-    if (!this.port || !this.port.readable) {
-      console.error('Cannot start reading: port is not open or not readable');
-      return;
-    }
+  startReadLoop() {
+    if (!this.port || this.readLoopRunning) return;
     
-    // Flag to prevent multiple read loops
     this.readLoopRunning = true;
     
-    // Create a reader from the port's readable stream
+    // Create new TextDecoder
+    const textDecoder = new TextDecoder();
+    
+    // Start the read loop
     this.reader = this.port.readable.getReader();
     
-    try {
-      // Loop to continuously read data
-      while (this.readLoopRunning) {
-        const { value, done } = await this.reader.read();
-        
-        // If the stream is done, break the loop
-        if (done) {
-          break;
+    // Add calibration controls
+    this.addCalibrateButton();
+    
+    // Auto-calibrate with default values that work well after a short delay
+    setTimeout(() => {
+      this.autoCalibrate();
+    }, 500);
+    
+    // Function to read from the port in a loop
+    const readLoop = async () => {
+      try {
+        while (this.readLoopRunning) {
+          const { value, done } = await this.reader.read();
+          
+          if (done) {
+            // Reader has been canceled, port is closed
+            console.log('Serial port reader closed');
+            this.updateDebugElement('Serial connection closed', 'yellow');
+            break;
+          }
+          
+          // Convert the received data to text
+          const text = textDecoder.decode(value);
+          
+          // Add to buffer
+          this.buffer += text;
+          
+          // Process complete lines
+          this.processBuffer();
         }
+      } catch (error) {
+        console.error('Error reading from serial port:', error);
+        this.updateDebugElement('Error reading from serial port: ' + error.message, 'red');
+        this.readLoopRunning = false;
+        this.connected = false;
         
-        // Process the received data
-        if (value) {
-          const text = new TextDecoder().decode(value);
-          this.processSerialData(text);
+        // If reading fails, offer keyboard control as fallback
+        this.setupKeyboardHandlers();
+      } finally {
+        // Release the reader
+        if (this.reader) {
+          this.reader.releaseLock();
         }
       }
-    } catch (error) {
-      console.error('Error reading serial data:', error);
-    } finally {
-      // Release the reader when done
-      this.reader.releaseLock();
-      this.reader = null;
-      
-      // If loop was aborted due to an error but we're still connected, try to restart
-      if (this.connected && !this.readLoopRunning) {
-        setTimeout(() => this.startReadingData(), 1000);
-      }
-    }
+    };
+    
+    // Start the read loop
+    readLoop();
+  }
+  
+  /**
+   * Add a "Calibrate Joystick" button to the page
+   */
+  createControlUI() {
+    // Create status indicator for bottom right
+    const controlStatus = document.createElement('div');
+    controlStatus.id = 'controller-status';
+    controlStatus.style.position = 'fixed';
+    controlStatus.style.bottom = '50px';
+    controlStatus.style.right = '10px';
+    controlStatus.style.padding = '5px 10px';
+    controlStatus.style.background = 'rgba(0, 0, 0, 0.7)';
+    controlStatus.style.color = 'lime';
+    controlStatus.style.borderRadius = '4px';
+    controlStatus.style.fontSize = '12px';
+    controlStatus.style.zIndex = '100';
+    controlStatus.textContent = 'Controller Connected';
+    
+    // Add to body
+    document.body.appendChild(controlStatus);
+    
+    // Make sure calibrate button exists
+    this.addCalibrateButton();
   }
   
   /**

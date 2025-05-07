@@ -10,7 +10,7 @@ const BRAKING = 6.0; // Unchanged
 const FRICTION = 0.85; // Unchanged
 const OFF_TRACK_FRICTION = 0.80; // Unchanged
 const TURN_RATE = 0.03; // Unchanged - current turning speed is good
-const STAR_COUNT = 100;
+const STAR_COUNT = 150;
 const MAX_LAPS = 3;
 const TRACK_WIDTH = 40; // Unchanged
 const TRACK_POINTS = [];
@@ -125,84 +125,294 @@ const treePositions = []; // Store tree positions for minimap
 const mountainPositions = []; // Store mountain positions for minimap
 
 // Initialize the game
-function init() {
-  // Set up renderer
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  document.getElementById('game-container').appendChild(renderer.domElement);
-
-  // Set up scene background - Sky gradient
-  scene.background = new THREE.Color(0x87CEEB);
-  scene.fog = new THREE.Fog(0x87CEEB, 500, 1500);
-
-  // Lighting
-  const ambientLight = new THREE.AmbientLight(0x404040, 1);
-  scene.add(ambientLight);
-
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-  directionalLight.position.set(100, 300, 100);
-  directionalLight.castShadow = true;
-  directionalLight.shadow.camera.near = 0.1;
-  directionalLight.shadow.camera.far = 500;
-  directionalLight.shadow.camera.right = 250;
-  directionalLight.shadow.camera.left = -250;
-  directionalLight.shadow.camera.top = 250;
-  directionalLight.shadow.camera.bottom = -250;
-  directionalLight.shadow.mapSize.width = 2048;
-  directionalLight.shadow.mapSize.height = 2048;
-  scene.add(directionalLight);
-
-  // Create base terrain
-  createBaseTerrain();
+async function init() {
+  console.log("Initializing game...");
   
-  // Create track
-  createRaceTrack();
+  // Create game container if it doesn't exist
+  if (!document.getElementById('game-container')) {
+    const gameContainer = document.createElement('div');
+    gameContainer.id = 'game-container';
+    gameContainer.style.width = '100%';
+    gameContainer.style.height = '100%';
+    gameContainer.style.position = 'absolute';
+    gameContainer.style.top = '0';
+    gameContainer.style.left = '0';
+    gameContainer.style.overflow = 'hidden';
+    document.body.appendChild(gameContainer);
+  }
   
-  // Create environment
-  createEnvironment();
-
-  // Load car model
+  // Load the car model
   loadCarModel();
-
-  // Create stars
-  createStars();
   
-  // Create checkpoints
-  createCheckpoints();
-
-  // Create minimap
-  createMinimap();
-
-  // Position camera behind car
-  camera.position.set(0, 5, -10);
-  camera.lookAt(car.position);
-
-  // Add orbit controls for development/debugging
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.update();
+  // Set up scene, camera, renderer, etc.
+  setupScene();
   
-  // Initially disable orbit controls - we'll use them just for debugging
-  controls.enabled = false;
-
-  // Load audio
-  loadAudio();
-
-  // Set up event listeners
-  window.addEventListener('resize', onWindowResize);
-  document.getElementById('connect-btn').addEventListener('click', connectController);
-  document.getElementById('restart-btn').addEventListener('click', restartGame);
-  
-  // Add keyboard controls for testing
+  // Set up keyboard controls for development/fallback
   setupKeyboardControls();
-
-  // Start the game
-  gameLoop();
   
-  // Auto start the game
-  startGame();
+  // Initialize serial controller and add event listeners for joystick data
+  serialController = new SerialController();
+  
+  // Create a debug element but hide it initially
+  const debugElement = document.createElement('div');
+  debugElement.id = 'joystick-debug';
+  debugElement.style.position = 'fixed';
+  debugElement.style.top = '40px';
+  debugElement.style.left = '10px';
+  debugElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+  debugElement.style.color = 'white';
+  debugElement.style.padding = '10px';
+  debugElement.style.borderRadius = '5px';
+  debugElement.style.zIndex = '1000';
+  debugElement.style.fontSize = '14px';
+  debugElement.style.fontFamily = 'monospace';
+  debugElement.style.display = 'none'; // Hide initially
+  debugElement.textContent = 'Controller: Not connected';
+  document.body.appendChild(debugElement);
+  
+  // Set up event listeners for window resize
+  window.addEventListener('resize', onWindowResize, false);
+  
+  // Try to connect to the serial controller automatically at startup
+  try {
+    // Make sure any existing overlays are cleared
+    forceRemoveAllOverlays();
+    
+    // Create the connect button that attempts auto-connect first
+    createConnectButton();
+    
+    // Add debug button to help troubleshoot
+    createDebugButton();
+    
+    // Set up joystick data callback
+    serialController.setJoystickDataCallback(handleControllerInput);
+    
+    // Add controller connected event listener to start game automatically
+    document.addEventListener('controller-connected', () => {
+      // Remove any connection buttons
+      const connectBtn = document.getElementById('connect-controller-btn');
+      if (connectBtn) connectBtn.style.display = 'none';
+      
+      const startWithoutBtn = document.getElementById('start-without-btn');
+      if (startWithoutBtn) startWithoutBtn.style.display = 'none';
+      
+      // Force clear all overlays
+      forceRemoveAllOverlays();
+      
+      // Show the joystick debug element when connected
+      const debugElement = document.getElementById('joystick-debug');
+      if (debugElement) debugElement.style.display = 'block';
+      
+      // Start the game after a short delay
+      setTimeout(() => {
+        startCountdown();
+      }, 500);
+    });
+    
+    console.log("Serial controller initialized");
+  } catch (error) {
+    console.error("Failed to initialize serial controller:", error);
+  }
+  
+  // Start animation loop
+  animate();
+}
+
+// Create a connect button that attempts auto-connect first
+function createConnectButton() {
+  // Remove any existing buttons
+  const existingButton = document.getElementById('connect-controller-btn');
+  if (existingButton) existingButton.remove();
+  const existingStartWithout = document.getElementById('start-without-btn');
+  if (existingStartWithout) existingStartWithout.remove();
+  
+  // Make sure any overlays that might be interfering are removed
+  const countdownOverlay = document.getElementById('countdown-overlay');
+  if (countdownOverlay) countdownOverlay.style.display = 'none';
+  
+  const messageOverlay = document.getElementById('message-overlay');
+  if (messageOverlay) messageOverlay.style.display = 'none';
+  
+  // Create new buttons
+  const button = document.createElement('button');
+  button.id = 'connect-controller-btn';
+  button.innerText = 'Connect Controller';
+  button.style.position = 'fixed';
+  button.style.top = '50%';
+  button.style.left = '50%';
+  button.style.transform = 'translate(-50%, -50%)';
+  button.style.padding = '15px 25px';
+  button.style.background = 'rgba(0, 100, 255, 0.8)';
+  button.style.color = 'white';
+  button.style.border = 'none';
+  button.style.borderRadius = '8px';
+  button.style.fontSize = '18px';
+  button.style.cursor = 'pointer';
+  button.style.zIndex = '5000'; // Much higher z-index to ensure it's on top
+  button.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
+  
+  // Add hover effect
+  button.onmouseover = () => {
+    button.style.background = 'rgba(30, 130, 255, 0.9)';
+    button.style.boxShadow = '0 6px 12px rgba(0,0,0,0.4)';
+  };
+  button.onmouseout = () => {
+    button.style.background = 'rgba(0, 100, 255, 0.8)';
+    button.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
+  };
+  
+  // Add a "Start Game without Controller" button 
+  const startWithoutButton = document.createElement('button');
+  startWithoutButton.id = 'start-without-btn';
+  startWithoutButton.innerText = 'Start Without Controller';
+  startWithoutButton.style.position = 'fixed';
+  startWithoutButton.style.top = 'calc(50% + 60px)';
+  startWithoutButton.style.left = '50%';
+  startWithoutButton.style.transform = 'translate(-50%, -50%)';
+  startWithoutButton.style.padding = '10px 20px';
+  startWithoutButton.style.background = 'rgba(50, 150, 50, 0.8)';
+  startWithoutButton.style.color = 'white';
+  startWithoutButton.style.border = 'none';
+  startWithoutButton.style.borderRadius = '8px';
+  startWithoutButton.style.fontSize = '14px';
+  startWithoutButton.style.cursor = 'pointer';
+  startWithoutButton.style.zIndex = '1000';
+  startWithoutButton.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
+  
+  // Add hover effect
+  startWithoutButton.onmouseover = () => {
+    startWithoutButton.style.background = 'rgba(70, 170, 70, 0.9)';
+  };
+  startWithoutButton.onmouseout = () => {
+    startWithoutButton.style.background = 'rgba(50, 150, 50, 0.8)';
+  };
+  
+  // When clicked, start the game without controller
+  startWithoutButton.onclick = () => {
+    // Hide both buttons
+    button.style.display = 'none';
+    startWithoutButton.style.display = 'none';
+    
+    // Update debug message and make it visible
+    const debugElement = document.getElementById('joystick-debug');
+    if (debugElement) {
+      debugElement.textContent = 'Using keyboard controls. Arrow keys to drive, Space for boost.';
+      debugElement.style.color = 'cyan';
+      debugElement.style.display = 'block';
+    }
+    
+    // Set up keyboard controls
+    if (serialController) {
+      serialController.setupKeyboardHandlers();
+    }
+    
+    // Force clear all overlays
+    forceRemoveAllOverlays();
+    
+    // Start the game
+    startCountdown();
+  };
+  
+  // When clicked, attempt to connect to the controller
+  button.onclick = async () => {
+    console.log("Connect button clicked"); // Debug log
+    try {
+      // Try to connect to the controller
+      button.innerText = 'Connecting...';
+      button.disabled = true;
+      
+      // Show debug element during connection
+      const debugElement = document.getElementById('joystick-debug');
+      if (debugElement) {
+        debugElement.textContent = 'Connecting to controller...';
+        debugElement.style.color = 'yellow';
+        debugElement.style.display = 'block';
+      }
+      
+      await serialController.connect();
+      
+      // Clear all overlays completely
+      forceRemoveAllOverlays();
+      
+      // Show a success message
+      const successMessage = document.createElement('div');
+      successMessage.textContent = 'Controller connected!';
+      successMessage.style.position = 'fixed';
+      successMessage.style.top = '50%';
+      successMessage.style.left = '50%';
+      successMessage.style.transform = 'translate(-50%, -50%)';
+      successMessage.style.padding = '15px 25px';
+      successMessage.style.background = 'rgba(0, 180, 0, 0.8)';
+      successMessage.style.color = 'white';
+      successMessage.style.borderRadius = '8px';
+      successMessage.style.fontSize = '18px';
+      successMessage.style.zIndex = '5000';
+      document.body.appendChild(successMessage);
+      
+      // Remove success message after 2 seconds
+      setTimeout(() => {
+        document.body.removeChild(successMessage);
+        
+        // Start the game
+        startCountdown();
+      }, 2000);
+      
+    } catch (error) {
+      console.error("Failed to connect to controller:", error);
+      
+      // Show an error message on the button
+      button.innerText = 'Connection Failed - Try Again';
+      button.style.background = 'rgba(200, 30, 30, 0.8)';
+      button.disabled = false;
+      
+      // Update debug element
+      const debugElement = document.getElementById('joystick-debug');
+      if (debugElement) {
+        debugElement.textContent = 'Connection failed: ' + error.message;
+        debugElement.style.color = 'red';
+      }
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        button.innerText = 'Connect Controller';
+        button.style.background = 'rgba(0, 100, 255, 0.8)';
+        
+        // Hide debug element after error
+        if (debugElement) debugElement.style.display = 'none';
+      }, 3000);
+    }
+  };
+  
+  // Add buttons to the page
+  document.body.appendChild(button);
+  document.body.appendChild(startWithoutButton);
+  
+  // Try auto-connect when the page loads
+  setTimeout(async () => {
+    try {
+      console.log("Attempting auto-connect...");
+      const autoConnected = await serialController.autoConnect();
+      
+      if (autoConnected) {
+        console.log("Auto-connect successful");
+        // If auto-connect was successful, remove both buttons
+        button.style.display = 'none';
+        startWithoutButton.style.display = 'none';
+        
+        // Force remove all overlays before starting the game
+        forceRemoveAllOverlays();
+        
+        // Start the game after a short delay
+        setTimeout(() => {
+          startCountdown();
+        }, 1000);
+      } else {
+        console.log("Auto-connect did not connect to any device");
+      }
+    } catch (error) {
+      console.log("Auto-connect failed with error:", error);
+    }
+  }, 500); // Wait a bit to ensure everything is loaded
 }
 
 // Setup keyboard controls for testing
@@ -298,17 +508,30 @@ function createRaceTrack() {
   trackMesh.receiveShadow = true;
   scene.add(trackMesh);
   
-  // Create off-track area (sand/dirt)
-  const offTrackGeometry = new THREE.TubeGeometry(trackCurve, 200, TRACK_WIDTH + 10, 16, true);
+  // Create off-track area (sand/dirt) with more contrast
+  const offTrackGeometry = new THREE.TubeGeometry(trackCurve, 200, TRACK_WIDTH + 20, 16, true); // Wider off-track
   const offTrackMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xD2B48C, // Tan color for dirt/sand
+    color: 0x8B4513, // Darker brown for more contrast
     roughness: 1.0
   });
   
   offTrackMesh = new THREE.Mesh(offTrackGeometry, offTrackMaterial);
-  offTrackMesh.position.y = -0.05; // Slightly below track
+  offTrackMesh.position.y = -0.1; // Slightly lower
   offTrackMesh.receiveShadow = true;
   scene.add(offTrackMesh);
+  
+  // Add visible track edges for better visibility
+  const innerEdgeGeometry = new THREE.TubeGeometry(trackCurve, 200, TRACK_WIDTH - 2, 16, true);
+  const edgeMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0xFFFFFF, // White edge lines
+    roughness: 0.5,
+    metalness: 0.2
+  });
+  
+  const innerEdge = new THREE.Mesh(innerEdgeGeometry, edgeMaterial);
+  innerEdge.position.y = 0.02; // Slightly above track
+  innerEdge.receiveShadow = true;
+  scene.add(innerEdge);
   
   // Add track markings
   addTrackMarkings(trackCurve);
@@ -339,8 +562,8 @@ function createRaceTrack() {
 
 // Add track markings (start/finish line, lane markings)
 function addTrackMarkings(trackCurve) {
-  // Start/finish line
-  const startLineGeometry = new THREE.PlaneGeometry(TRACK_WIDTH * 0.8, 2);
+  // Start/finish line - make it larger and more visible
+  const startLineGeometry = new THREE.PlaneGeometry(TRACK_WIDTH * 0.9, 5);
   const startLineMaterial = new THREE.MeshBasicMaterial({ 
     color: 0xFFFFFF,
     side: THREE.DoubleSide
@@ -358,19 +581,59 @@ function addTrackMarkings(trackCurve) {
   
   scene.add(startLine);
   
-  // Add dashed lane markings along the center of the track
-  const dashedLineCount = 100;
+  // Create checkered pattern for start/finish line
+  const checkerSize = 2.5; // Size of each checker square
+  const checkerRows = 2;
+  const checkerCols = Math.floor(TRACK_WIDTH * 0.9 / checkerSize);
+  
+  for (let row = 0; row < checkerRows; row++) {
+    for (let col = 0; col < checkerCols; col++) {
+      // Only create checkers for alternating squares
+      if ((row + col) % 2 === 0) continue;
+      
+      const checkerGeometry = new THREE.PlaneGeometry(checkerSize, checkerSize);
+      const checkerMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x000000, // Black checkers
+        side: THREE.DoubleSide
+      });
+      const checker = new THREE.Mesh(checkerGeometry, checkerMaterial);
+      
+      // Position each checker within the start line
+      const xOffset = (col - checkerCols / 2 + 0.5) * checkerSize;
+      const zOffset = (row - checkerRows / 2 + 0.5) * checkerSize;
+      
+      // Apply rotation and offset to position correctly
+      checker.position.copy(startPos);
+      checker.position.y += 0.06; // Slightly above start line
+      
+      // Use the perpendicular and direction vectors to place correctly
+      checker.position.add(
+        perpendicular.clone().multiplyScalar(xOffset)
+      );
+      checker.position.add(
+        direction.clone().multiplyScalar(zOffset)
+      );
+      
+      checker.rotation.x = Math.PI / 2;
+      checker.rotation.y = Math.atan2(perpendicular.x, perpendicular.z);
+      
+      scene.add(checker);
+    }
+  }
+  
+  // Add dashed lane markings along the center of the track - more of them
+  const dashedLineCount = 200; // More lane markings
   const trackLength = trackCurve.getLength();
-  const dashLength = 2;
-  const gapLength = 2;
+  const dashLength = 3; // Longer dashes
+  const gapLength = 3;
   
   for (let i = 0; i < dashedLineCount; i++) {
     const t = (i * (dashLength + gapLength)) / trackLength;
     if (t > 1) break;
     
-    const lineGeometry = new THREE.PlaneGeometry(0.5, dashLength);
+    const lineGeometry = new THREE.PlaneGeometry(1.0, dashLength); // Wider line
     const lineMaterial = new THREE.MeshBasicMaterial({ 
-      color: 0xFFFFFF,
+      color: 0xFFFFFF, // White
       side: THREE.DoubleSide
     });
     const line = new THREE.Mesh(lineGeometry, lineMaterial);
@@ -865,204 +1128,6 @@ function createCheckpoints() {
       position: position.clone(),
       index: i
     });
-  }
-}
-
-// Connect to the controller and start countdown when connected
-function connectController() {
-  if (!serialController) {
-    serialController = new SerialController();
-    serialController.connect()
-      .then(() => {
-        document.getElementById('connect-btn').textContent = 'Connected';
-        document.getElementById('connect-btn').disabled = true;
-        document.getElementById('joystick-debug').textContent = 'Controller connected';
-        
-        // Set up controller input handler using the correct method
-        serialController.setJoystickDataCallback(handleControllerInput);
-        
-        console.log("Controller connected and callback set up");
-        
-        // Show countdown and start the game after countdown
-        startCountdown();
-      })
-      .catch(error => {
-        console.error('Failed to connect:', error);
-        document.getElementById('joystick-debug').textContent = 'Connection failed';
-      });
-  }
-}
-
-// Start the countdown before starting the game
-function startCountdown() {
-  // Create countdown overlay if it doesn't exist
-  if (!document.getElementById('countdown-overlay')) {
-    const countdownOverlay = document.createElement('div');
-    countdownOverlay.id = 'countdown-overlay';
-    countdownOverlay.style.position = 'absolute';
-    countdownOverlay.style.top = '0';
-    countdownOverlay.style.left = '0';
-    countdownOverlay.style.width = '100%';
-    countdownOverlay.style.height = '100%';
-    countdownOverlay.style.display = 'flex';
-    countdownOverlay.style.justifyContent = 'center';
-    countdownOverlay.style.alignItems = 'center';
-    countdownOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-    countdownOverlay.style.zIndex = '1000';
-    countdownOverlay.style.fontSize = '120px';
-    countdownOverlay.style.fontWeight = 'bold';
-    countdownOverlay.style.color = 'white';
-    countdownOverlay.style.textShadow = '2px 2px 5px rgba(0, 0, 0, 0.5)';
-    
-    document.getElementById('game-container').appendChild(countdownOverlay);
-  }
-  
-  // Set countdown state
-  countdownActive = true;
-  countdownStartTime = Date.now();
-  
-  // Update countdown in the game loop
-  updateCountdown();
-}
-
-// Update countdown
-function updateCountdown() {
-  if (!countdownActive) return;
-  
-  const elapsedTime = Date.now() - countdownStartTime;
-  const countdownOverlay = document.getElementById('countdown-overlay');
-  
-  if (elapsedTime < COUNTDOWN_DURATION) {
-    // Calculate seconds remaining (3, 2, 1)
-    const secondsRemaining = Math.ceil((COUNTDOWN_DURATION - elapsedTime) / 1000);
-    countdownOverlay.textContent = secondsRemaining.toString();
-    
-    // No sounds for countdown numbers
-  } else {
-    // Countdown complete, show GO and start the game
-    countdownOverlay.textContent = 'GO!';
-    
-    // Ensure no particles or explosion effects
-    clearAllParticles();
-    
-    // Remove countdown overlay after a short delay
-    setTimeout(() => {
-      countdownActive = false;
-      countdownOverlay.style.display = 'none';
-      
-      // Actually start the game
-      startGame();
-    }, 1000);
-  }
-}
-
-// Handle controller input with much less steering sensitivity
-function handleControllerInput(data) {
-  if (gameOver) return; // Only check for gameOver, not gameRunning
-  
-  // Log data for debugging
-  console.log("Joystick data received:", data);
-  
-  // Start the game if not already running when joystick is used
-  if (!gameRunning) {
-    startGame();
-    return; // Don't process input until the game actually starts
-  }
-  
-  // Display controller data for debugging - show raw values
-  document.getElementById('joystick-debug').textContent = 
-    `Roll: ${data.roll.toFixed(2)}, Pitch: ${data.pitch.toFixed(2)}, Boost: ${data.boost ? 'ON' : 'OFF'}`;
-  
-  // The problem is that the joystick orientation might be different than expected
-  // Let's invert the controls to match the physical joystick orientation
-  // This makes pushing away (positive pitch) accelerate and pulling back (negative pitch) brake/reverse
-  // And makes pushing right (positive roll) turn right and pushing left (negative roll) turn left
-  let adjustedPitch = -data.pitch; // Invert pitch so forward is positive, backward is negative
-  let adjustedRoll = data.roll;    // Roll is already inverted in the serial controller
-  
-  // Apply deadzone to prevent drift
-  const roll = Math.abs(adjustedRoll) > JOYSTICK_DEADZONE ? adjustedRoll : 0;
-  const pitch = Math.abs(adjustedPitch) > JOYSTICK_DEADZONE ? adjustedPitch : 0;
-  
-  // Steering - simplified logic that works for both directions
-  if (Math.abs(roll) > JOYSTICK_DEADZONE) {
-    // Steering now matches physical joystick movement:
-    // Positive roll = pushing joystick right = turn right (negative rotation)
-    // Negative roll = pushing joystick left = turn left (positive rotation)
-    car.rotation.y -= TURN_RATE * roll * 1.8; // Increased multiplier for responsiveness
-    console.log(`Turning ${roll > 0 ? 'RIGHT' : 'LEFT'}, roll:`, roll);
-  }
-  
-  // Debugging output for forward/backward movement
-  if (pitch !== 0) {
-    console.log("Pitch value being used:", pitch);
-  }
-  
-  // Acceleration and braking/reversing - handle separately for clarity
-  if (pitch > JOYSTICK_DEADZONE) {
-    // Forward movement (positive adjusted pitch - pushing joystick forward, away from pins)
-    car.speed += ACCELERATION * pitch * 0.15; // Increased from 0.1 to 0.15 for faster acceleration
-    
-    if (car.speed > MAX_SPEED) {
-      car.speed = MAX_SPEED;
-    }
-    
-    // Play acceleration sound if speed increasing
-    if (!audioElements.accelerate.playing && car.speed > 20) {
-      playSound('accelerate');
-    }
-    
-    console.log("FORWARD, pitch:", pitch, "speed:", car.speed);
-  }
-  else if (pitch < -JOYSTICK_DEADZONE) {
-    // Negative adjusted pitch - pulling joystick back, toward pins
-    if (car.speed > 0) {
-      // Braking
-      car.speed += BRAKING * pitch * 0.2; // Since pitch is negative, this reduces speed
-      
-      // Play braking sound
-      if (!audioElements.brake.playing && car.speed > 10) {
-        playSound('brake');
-      }
-      
-      // Ensure we don't go below 0 when braking
-      if (car.speed < 0) {
-        car.speed = 0;
-      }
-      
-      console.log("BRAKING, pitch:", pitch, "speed:", car.speed);
-    }
-    else {
-      // Reversing
-      car.speed = ACCELERATION * pitch * 0.15; // Since pitch is negative, this makes speed negative
-      
-      // Limit reverse speed
-      if (car.speed < -MAX_SPEED * 0.4) {
-        car.speed = -MAX_SPEED * 0.4;
-      }
-      
-      console.log("REVERSING, pitch:", pitch, "speed:", car.speed);
-    }
-  }
-  // Force the car to stop more quickly when joystick is centered
-  else if (Math.abs(pitch) <= JOYSTICK_DEADZONE) {
-    car.speed *= 0.95; // Additional friction when joystick is in neutral
-    if (Math.abs(car.speed) < 0.1) car.speed = 0; // Stop completely below threshold
-  }
-  
-  // Use boost button for an optional speed boost
-  if (data.boost && car.speed !== 0) {
-    if (car.speed > 0) {
-      car.speed += 3; // Increased from 2 to 3 for stronger boost
-      if (car.speed > MAX_SPEED * 1.3) { // Increased from 1.2 to 1.3 for higher top speed with boost
-        car.speed = MAX_SPEED * 1.3;
-      }
-    } else {
-      car.speed -= 1; // Reverse boost (unchanged)
-      if (car.speed < -MAX_SPEED * 0.5) {
-        car.speed = -MAX_SPEED * 0.5;
-      }
-    }
   }
 }
 
@@ -1733,7 +1798,7 @@ function updateMinimap() {
   ctx.clearRect(0, 0, 200, 200);
   
   // Set translucent background
-  ctx.fillStyle = 'rgba(230, 255, 230, 0.6)'; // Light green with transparency
+  ctx.fillStyle = 'rgba(120, 180, 120, 0.9)'; // Darker green with less transparency 
   ctx.fillRect(0, 0, 200, 200);
   
   // Scale and center factors - increased scale for more zoom
@@ -1741,9 +1806,29 @@ function updateMinimap() {
   const offsetX = 100;
   const offsetY = 100;
   
+  // Draw off-track area first (wider than track)
+  ctx.beginPath();
+  ctx.strokeStyle = '#8B4513'; // Match the brown color of the off-track area
+  ctx.lineWidth = (TRACK_WIDTH + 20) * scale; // Match the off-track width
+  
+  if (TRACK_POINTS.length > 1) {
+    const startPoint = worldToMinimap(TRACK_POINTS[0], scale, offsetX, offsetY);
+    ctx.moveTo(startPoint.x, startPoint.y);
+    
+    for (let i = 1; i < TRACK_POINTS.length; i++) {
+      const point = worldToMinimap(TRACK_POINTS[i], scale, offsetX, offsetY);
+      ctx.lineTo(point.x, point.y);
+    }
+    
+    // Close the track loop
+    ctx.lineTo(startPoint.x, startPoint.y);
+  }
+  
+  ctx.stroke();
+  
   // Draw track with increased width and contrast
   ctx.beginPath();
-  ctx.strokeStyle = '#111111'; // Very dark gray, almost black
+  ctx.strokeStyle = '#222222'; // Nearly black
   ctx.lineWidth = TRACK_WIDTH * scale * 1.2; // Increased width by 20%
   
   if (TRACK_POINTS.length > 1) {
@@ -1761,6 +1846,27 @@ function updateMinimap() {
   
   ctx.stroke();
   
+  // Draw edge lines (white borders)
+  ctx.beginPath();
+  ctx.strokeStyle = '#FFFFFF'; // White
+  ctx.lineWidth = 1;
+  
+  // Inner edge
+  if (TRACK_POINTS.length > 1) {
+    const startPoint = worldToMinimap(TRACK_POINTS[0], scale, offsetX, offsetY);
+    ctx.moveTo(startPoint.x, startPoint.y);
+    
+    for (let i = 1; i < TRACK_POINTS.length; i++) {
+      const point = worldToMinimap(TRACK_POINTS[i], scale, offsetX, offsetY);
+      ctx.lineTo(point.x, point.y);
+    }
+    
+    // Close the track loop
+    ctx.lineTo(startPoint.x, startPoint.y);
+  }
+  
+  ctx.stroke();
+
   // Draw start/finish line more prominently
   if (TRACK_POINTS.length > 1) {
     const startPoint = worldToMinimap(TRACK_POINTS[0], scale, offsetX, offsetY);
@@ -1818,6 +1924,18 @@ function updateMinimap() {
   ctx.stroke();
   
   ctx.restore();
+  
+  // Draw minimap border
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 0, 200, 200);
+  
+  // Add text label
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, 70, 20);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '12px Arial';
+  ctx.fillText('Track Map', 10, 14);
 }
 
 // Convert world coordinates to minimap coordinates
@@ -1836,5 +1954,840 @@ function worldToMinimap(pos, scale, offsetX, offsetY) {
   }
 }
 
+// Set up the scene, camera, renderer, and other core elements
+function setupScene() {
+  // Set up renderer
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  
+  // Create game container if it doesn't exist
+  let gameContainer = document.getElementById('game-container');
+  if (!gameContainer) {
+    gameContainer = document.createElement('div');
+    gameContainer.id = 'game-container';
+    gameContainer.style.width = '100%';
+    gameContainer.style.height = '100%';
+    gameContainer.style.position = 'absolute';
+    gameContainer.style.top = '0';
+    gameContainer.style.left = '0';
+    document.body.appendChild(gameContainer);
+  }
+  
+  gameContainer.appendChild(renderer.domElement);
+  
+  // Set up scene background - Sky gradient
+  scene.background = new THREE.Color(0x87CEEB);
+  scene.fog = new THREE.Fog(0x87CEEB, 500, 1500);
+  
+  // Lighting
+  const ambientLight = new THREE.AmbientLight(0x404040, 1);
+  scene.add(ambientLight);
+  
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+  directionalLight.position.set(100, 300, 100);
+  directionalLight.castShadow = true;
+  directionalLight.shadow.camera.near = 0.1;
+  directionalLight.shadow.camera.far = 500;
+  directionalLight.shadow.camera.right = 250;
+  directionalLight.shadow.camera.left = -250;
+  directionalLight.shadow.camera.top = 250;
+  directionalLight.shadow.camera.bottom = -250;
+  directionalLight.shadow.mapSize.width = 2048;
+  directionalLight.shadow.mapSize.height = 2048;
+  scene.add(directionalLight);
+  
+  // Create base terrain
+  createBaseTerrain();
+  
+  // Create track
+  createRaceTrack();
+  
+  // Create environment
+  createEnvironment();
+  
+  // Create stars
+  createStars();
+  
+  // Create checkpoints
+  createCheckpoints();
+  
+  // Create minimap
+  createMinimap();
+  
+  // Position camera behind car
+  camera.position.set(0, 5, -10);
+  camera.lookAt(car.position);
+  
+  // Add orbit controls for development/debugging
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.update();
+  
+  // Initially disable orbit controls - we'll use them just for debugging
+  controls.enabled = false;
+  
+  // Load audio
+  loadAudio();
+  
+  // Create game UI with countdown overlay hidden
+  createGameUI();
+}
+
+// Create game UI elements
+function createGameUI() {
+  // Create HUD elements if they don't exist
+  if (!document.getElementById('hud')) {
+    const hud = document.createElement('div');
+    hud.id = 'hud';
+    hud.style.position = 'absolute';
+    hud.style.top = '20px';
+    hud.style.right = '240px'; // Position next to minimap
+    hud.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    hud.style.color = 'white';
+    hud.style.padding = '10px';
+    hud.style.borderRadius = '5px';
+    hud.style.fontFamily = 'Arial, sans-serif';
+    hud.style.zIndex = '100';
+    
+    hud.innerHTML = `
+      <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
+      <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
+      <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
+      <div id="speed-display" style="font-size: 16px; color: #66CCFF;">Speed: 0 km/h</div>
+    `;
+    
+    document.getElementById('game-container').appendChild(hud);
+  }
+  
+  // Create restart button
+  if (!document.getElementById('restart-btn')) {
+    const restartBtn = document.createElement('button');
+    restartBtn.id = 'restart-btn';
+    restartBtn.innerText = 'Restart Game';
+    restartBtn.style.position = 'fixed';
+    restartBtn.style.bottom = '10px';
+    restartBtn.style.left = '10px';
+    restartBtn.style.padding = '8px 12px';
+    restartBtn.style.background = 'rgba(0, 0, 0, 0.7)';
+    restartBtn.style.color = 'white';
+    restartBtn.style.border = '1px solid white';
+    restartBtn.style.borderRadius = '4px';
+    restartBtn.style.cursor = 'pointer';
+    restartBtn.style.zIndex = '1000';
+    
+    // Add hover effect
+    restartBtn.onmouseover = () => {
+      restartBtn.style.background = 'rgba(50, 50, 50, 0.7)';
+    };
+    restartBtn.onmouseout = () => {
+      restartBtn.style.background = 'rgba(0, 0, 0, 0.7)';
+    };
+    
+    // Add click event
+    restartBtn.onclick = () => {
+      restartGame();
+    };
+    
+    document.body.appendChild(restartBtn);
+  }
+  
+  // Add countdown overlay if it doesn't exist, but keep it hidden until needed
+  if (!document.getElementById('countdown-overlay')) {
+    const countdownOverlay = document.createElement('div');
+    countdownOverlay.id = 'countdown-overlay';
+    countdownOverlay.style.position = 'absolute';
+    countdownOverlay.style.top = '0';
+    countdownOverlay.style.left = '0';
+    countdownOverlay.style.width = '100%';
+    countdownOverlay.style.height = '100%';
+    countdownOverlay.style.display = 'none'; // Initially hidden
+    countdownOverlay.style.justifyContent = 'center';
+    countdownOverlay.style.alignItems = 'center';
+    countdownOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    countdownOverlay.style.zIndex = '1000';
+    countdownOverlay.style.fontSize = '120px';
+    countdownOverlay.style.fontWeight = 'bold';
+    countdownOverlay.style.color = 'white';
+    countdownOverlay.style.textShadow = '2px 2px 5px rgba(0, 0, 0, 0.5)';
+    
+    document.getElementById('game-container').appendChild(countdownOverlay);
+  }
+  
+  // Create message overlay (for victory/defeat messages)
+  if (!document.getElementById('message-overlay')) {
+    const messageOverlay = document.createElement('div');
+    messageOverlay.id = 'message-overlay';
+    messageOverlay.style.position = 'absolute';
+    messageOverlay.style.top = '0';
+    messageOverlay.style.left = '0';
+    messageOverlay.style.width = '100%';
+    messageOverlay.style.height = '100%';
+    messageOverlay.style.display = 'none'; // Initially hidden
+    messageOverlay.style.justifyContent = 'center';
+    messageOverlay.style.alignItems = 'center';
+    messageOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    messageOverlay.style.zIndex = '1000';
+    
+    const messageBox = document.createElement('div');
+    messageBox.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    messageBox.style.border = '2px solid #FFCC00';
+    messageBox.style.borderRadius = '10px';
+    messageBox.style.padding = '20px';
+    messageBox.style.textAlign = 'center';
+    messageBox.style.maxWidth = '500px';
+    
+    const messageTitle = document.createElement('h2');
+    messageTitle.id = 'message-title';
+    messageTitle.style.color = '#FFCC00';
+    messageTitle.style.fontSize = '32px';
+    messageTitle.style.margin = '0 0 20px 0';
+    
+    const messageContent = document.createElement('p');
+    messageContent.id = 'message-content';
+    messageContent.style.color = 'white';
+    messageContent.style.fontSize = '18px';
+    messageContent.style.marginBottom = '20px';
+    
+    messageBox.appendChild(messageTitle);
+    messageBox.appendChild(messageContent);
+    messageOverlay.appendChild(messageBox);
+    
+    document.getElementById('game-container').appendChild(messageOverlay);
+  }
+  
+  // Add wrong way indicator
+  if (!document.getElementById('wrong-way')) {
+    const wrongWay = document.createElement('div');
+    wrongWay.id = 'wrong-way';
+    wrongWay.textContent = 'WRONG WAY!';
+    wrongWay.style.position = 'absolute';
+    wrongWay.style.top = '100px';
+    wrongWay.style.left = '50%';
+    wrongWay.style.transform = 'translateX(-50%)';
+    wrongWay.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+    wrongWay.style.color = 'white';
+    wrongWay.style.padding = '10px 20px';
+    wrongWay.style.borderRadius = '5px';
+    wrongWay.style.fontSize = '24px';
+    wrongWay.style.fontWeight = 'bold';
+    wrongWay.style.zIndex = '100';
+    wrongWay.style.display = 'none'; // Initially hidden
+    
+    document.getElementById('game-container').appendChild(wrongWay);
+  }
+}
+
+// Handle controller input with much less steering sensitivity
+function handleControllerInput(data) {
+  if (gameOver) return; // Only check for gameOver, not gameRunning
+  
+  // Log data for debugging
+  console.log("Joystick data received:", data);
+  
+  // Start the game if not already running when joystick is used
+  if (!gameRunning) {
+    startGame();
+    return; // Don't process input until the game actually starts
+  }
+  
+  // Display controller data for debugging - show raw values
+  const debugElement = document.getElementById('joystick-debug');
+  if (debugElement) {
+    debugElement.textContent = `Roll: ${data.roll.toFixed(2)}, Pitch: ${data.pitch.toFixed(2)}, Boost: ${data.boost ? 'ON' : 'OFF'}`;
+  }
+  
+  // The problem is that the joystick orientation might be different than expected
+  // This makes pushing away (positive pitch) accelerate and pulling back (negative pitch) brake/reverse
+  // And makes pushing right (positive roll) turn right and pushing left (negative roll) turn left
+  let adjustedPitch = -data.pitch; // Invert pitch so forward is positive, backward is negative
+  let adjustedRoll = data.roll;    // Make sure roll is correctly mapped for turning
+  
+  // Apply deadzone to prevent drift
+  const roll = Math.abs(adjustedRoll) > JOYSTICK_DEADZONE ? adjustedRoll : 0;
+  const pitch = Math.abs(adjustedPitch) > JOYSTICK_DEADZONE ? adjustedPitch : 0;
+  
+  // Steering - ensure both left and right turning works properly
+  if (Math.abs(roll) > JOYSTICK_DEADZONE) {
+    // Right turn (positive roll): decrease rotation Y (negative change)
+    // Left turn (negative roll): increase rotation Y (positive change)
+    car.rotation.y -= TURN_RATE * roll * 1.5;
+    console.log(`Turning ${roll > 0 ? 'RIGHT' : 'LEFT'}, roll:`, roll);
+  }
+  
+  // Debugging output for forward/backward movement
+  if (pitch !== 0) {
+    console.log("Pitch value being used:", pitch);
+  }
+  
+  // Acceleration and braking/reversing - handle separately for clarity
+  if (pitch > JOYSTICK_DEADZONE) {
+    // Forward movement (positive adjusted pitch - pushing joystick forward, away from pins)
+    car.speed += ACCELERATION * pitch * 0.15; // Increased from 0.1 to 0.15 for faster acceleration
+    
+    if (car.speed > MAX_SPEED) {
+      car.speed = MAX_SPEED;
+    }
+    
+    // Play acceleration sound if speed increasing
+    if (!audioElements.accelerate.playing && car.speed > 20) {
+      playSound('accelerate');
+    }
+    
+    console.log("FORWARD, pitch:", pitch, "speed:", car.speed);
+  }
+  else if (pitch < -JOYSTICK_DEADZONE) {
+    // Negative adjusted pitch - pulling joystick back, toward pins
+    if (car.speed > 0) {
+      // Braking
+      car.speed += BRAKING * pitch * 0.2; // Since pitch is negative, this reduces speed
+      
+      // Play braking sound
+      if (!audioElements.brake.playing && car.speed > 10) {
+        playSound('brake');
+      }
+      
+      // Ensure we don't go below 0 when braking
+      if (car.speed < 0) {
+        car.speed = 0;
+      }
+      
+      console.log("BRAKING, pitch:", pitch, "speed:", car.speed);
+    }
+    else {
+      // Reversing
+      car.speed = ACCELERATION * pitch * 0.15; // Since pitch is negative, this makes speed negative
+      
+      // Limit reverse speed
+      if (car.speed < -MAX_SPEED * 0.4) {
+        car.speed = -MAX_SPEED * 0.4;
+      }
+      
+      console.log("REVERSING, pitch:", pitch, "speed:", car.speed);
+    }
+  }
+  // Force the car to stop more quickly when joystick is centered
+  else if (Math.abs(pitch) <= JOYSTICK_DEADZONE) {
+    car.speed *= 0.95; // Additional friction when joystick is in neutral
+    if (Math.abs(car.speed) < 0.1) car.speed = 0; // Stop completely below threshold
+  }
+  
+  // Use boost button for an optional speed boost
+  if (data.boost && car.speed !== 0) {
+    if (car.speed > 0) {
+      car.speed += 3; // Increased from 2 to 3 for stronger boost
+      if (car.speed > MAX_SPEED * 1.3) { // Increased from 1.2 to 1.3 for higher top speed with boost
+        car.speed = MAX_SPEED * 1.3;
+      }
+    } else {
+      car.speed -= 1; // Reverse boost (unchanged)
+      if (car.speed < -MAX_SPEED * 0.5) {
+        car.speed = -MAX_SPEED * 0.5;
+      }
+    }
+  }
+}
+
 // Initialize the game when the page loads
 window.addEventListener('load', init);
+
+// Animation loop
+function animate() {
+  requestAnimationFrame(animate);
+  
+  // Update debug info
+  const debugDiv = document.getElementById('debug-info');
+  if (debugDiv) {
+    debugDiv.textContent = `Game running: ${gameRunning}, Game over: ${gameOver}, Car speed: ${car.speed.toFixed(2)}`;
+  }
+  
+  // Hide joystick debug if playing game (only show during setup)
+  const joystickDebug = document.getElementById('joystick-debug');
+  if (joystickDebug && gameRunning && !gameOver && car.speed > 0) {
+    joystickDebug.style.opacity = '0.3'; // Fade it out when playing but leave visible for reference
+  } else if (joystickDebug && !gameRunning) {
+    joystickDebug.style.opacity = '1'; // Full opacity when not playing
+  }
+  
+  // Update countdown if active
+  if (countdownActive) {
+    updateCountdown();
+  }
+  
+  // Update car physics even if not running (for testing)
+  updateCarPhysics();
+  
+  // Update particles
+  updateParticles();
+  
+  // Update minimap
+  updateMinimap();
+  
+  if (gameRunning && !gameOver) {
+    // Update game time
+    currentTime = Date.now() - lapStartTime;
+    document.getElementById('time-display').textContent = formatTime(currentTime);
+    
+    // Check if time exceeded target
+    if (currentTime > targetTime && currentLap === MAX_LAPS - 1) {
+      endRace(false);
+    }
+  }
+  
+  // Update controls if enabled (for debugging)
+  if (controls && controls.enabled) {
+    controls.update();
+  }
+  
+  // Render scene
+  renderer.render(scene, camera);
+}
+
+// Start the countdown before starting the game
+function startCountdown() {
+  // Force remove any existing overlays first
+  forceRemoveAllOverlays();
+  
+  // Create countdown overlay if it doesn't exist
+  if (!document.getElementById('countdown-overlay')) {
+    const countdownOverlay = document.createElement('div');
+    countdownOverlay.id = 'countdown-overlay';
+    countdownOverlay.style.position = 'absolute';
+    countdownOverlay.style.top = '0';
+    countdownOverlay.style.left = '0';
+    countdownOverlay.style.width = '100%';
+    countdownOverlay.style.height = '100%';
+    countdownOverlay.style.display = 'flex';
+    countdownOverlay.style.justifyContent = 'center';
+    countdownOverlay.style.alignItems = 'center';
+    countdownOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    countdownOverlay.style.zIndex = '1000';
+    countdownOverlay.style.fontSize = '120px';
+    countdownOverlay.style.fontWeight = 'bold';
+    countdownOverlay.style.color = 'white';
+    countdownOverlay.style.textShadow = '2px 2px 5px rgba(0, 0, 0, 0.5)';
+    
+    document.getElementById('game-container').appendChild(countdownOverlay);
+  } else {
+    document.getElementById('countdown-overlay').style.display = 'flex';
+  }
+  
+  // Set countdown state
+  countdownActive = true;
+  countdownStartTime = Date.now();
+  
+  // Update countdown in the game loop
+  updateCountdown();
+}
+
+// Update countdown
+function updateCountdown() {
+  if (!countdownActive) return;
+  
+  const elapsedTime = Date.now() - countdownStartTime;
+  const countdownOverlay = document.getElementById('countdown-overlay');
+  
+  if (elapsedTime < COUNTDOWN_DURATION) {
+    // Calculate seconds remaining (3, 2, 1)
+    const secondsRemaining = Math.ceil((COUNTDOWN_DURATION - elapsedTime) / 1000);
+    countdownOverlay.textContent = secondsRemaining.toString();
+    
+    // No sounds for countdown numbers
+  } else {
+    // Countdown complete, show GO and start the game
+    countdownOverlay.textContent = 'GO!';
+    
+    // Ensure no particles or explosion effects
+    clearAllParticles();
+    
+    // Remove countdown overlay after a short delay
+    setTimeout(() => {
+      countdownActive = false;
+      countdownOverlay.style.display = 'none';
+      
+      // Actually start the game
+      startGame();
+    }, 1000);
+  }
+}
+
+// Add a debug button to help troubleshoot joystick issues
+function createDebugButton() {
+  // Create a debug button
+  const debugButton = document.createElement('button');
+  debugButton.id = 'debug-button';
+  debugButton.innerText = 'Show Serial Devices';
+  debugButton.style.position = 'fixed';
+  debugButton.style.top = '10px';
+  debugButton.style.right = '10px';
+  debugButton.style.padding = '5px 10px';
+  debugButton.style.background = 'rgba(255, 0, 0, 0.7)';
+  debugButton.style.color = 'white';
+  debugButton.style.border = 'none';
+  debugButton.style.borderRadius = '4px';
+  debugButton.style.fontSize = '12px';
+  debugButton.style.cursor = 'pointer';
+  debugButton.style.zIndex = '5000';
+  
+  // Add hover effect
+  debugButton.onmouseover = () => {
+    debugButton.style.background = 'rgba(255, 50, 50, 0.9)';
+  };
+  debugButton.onmouseout = () => {
+    debugButton.style.background = 'rgba(255, 0, 0, 0.7)';
+  };
+  
+  // Add click handler
+  debugButton.onclick = async () => {
+    try {
+      // Get a list of all available serial ports
+      const ports = await navigator.serial.getPorts();
+      console.log('Available serial ports:', ports);
+      
+      // Check if Web Serial API is supported
+      const isSupported = 'serial' in navigator;
+      console.log('Web Serial API supported:', isSupported);
+      
+      // Create a debug overlay
+      const debugOverlay = document.createElement('div');
+      debugOverlay.style.position = 'fixed';
+      debugOverlay.style.top = '50%';
+      debugOverlay.style.left = '50%';
+      debugOverlay.style.transform = 'translate(-50%, -50%)';
+      debugOverlay.style.padding = '20px';
+      debugOverlay.style.background = 'rgba(0, 0, 0, 0.9)';
+      debugOverlay.style.color = 'white';
+      debugOverlay.style.borderRadius = '10px';
+      debugOverlay.style.maxWidth = '80%';
+      debugOverlay.style.maxHeight = '80%';
+      debugOverlay.style.overflow = 'auto';
+      debugOverlay.style.zIndex = '6000';
+      
+      // Add content
+      let content = `<h2>Serial Debug Info</h2>
+                     <p>Web Serial API supported: ${isSupported ? 'Yes' : 'No'}</p>
+                     <p>Available ports: ${ports.length}</p>`;
+      
+      // Add details for each port
+      if (ports.length > 0) {
+        content += '<h3>Port Details:</h3><ul>';
+        ports.forEach((port, index) => {
+          const info = port.getInfo();
+          content += `<li>Port ${index+1}: 
+                        <ul>
+                          <li>USB Vendor ID: ${info.usbVendorId || 'N/A'}</li>
+                          <li>USB Product ID: ${info.usbProductId || 'N/A'}</li>
+                        </ul>
+                      </li>`;
+        });
+        content += '</ul>';
+      }
+      
+      // Add close button
+      content += '<button id="close-debug" style="padding: 5px 15px; background: #f00; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 15px;">Close</button>';
+      
+      debugOverlay.innerHTML = content;
+      document.body.appendChild(debugOverlay);
+      
+      // Add close handler
+      document.getElementById('close-debug').onclick = () => {
+        document.body.removeChild(debugOverlay);
+      };
+      
+    } catch (error) {
+      console.error('Error getting serial ports:', error);
+      alert('Error getting serial ports: ' + error.message);
+    }
+  };
+  
+  document.body.appendChild(debugButton);
+}
+
+// Function to clear all overlays and UI elements that might be interfering
+function clearAllOverlays() {
+  // Hide connection buttons
+  const connectBtn = document.getElementById('connect-controller-btn');
+  if (connectBtn) connectBtn.style.display = 'none';
+  
+  const startWithoutBtn = document.getElementById('start-without-btn');
+  if (startWithoutBtn) startWithoutBtn.style.display = 'none';
+  
+  // Hide any overlays that might be blocking
+  const countdownOverlay = document.getElementById('countdown-overlay');
+  if (countdownOverlay) {
+    countdownOverlay.style.display = 'none';
+    countdownActive = false;
+  }
+  
+  const messageOverlay = document.getElementById('message-overlay');
+  if (messageOverlay) messageOverlay.style.display = 'none';
+  
+  // Hide other potential overlays or messages
+  const wrongWay = document.getElementById('wrong-way');
+  if (wrongWay) wrongWay.style.display = 'none';
+  
+  // Check for any other element with high z-index
+  document.querySelectorAll('[style*="z-index"]').forEach(element => {
+    // Skip buttons we want to keep
+    if (element.id === 'debug-button' || 
+        element.id === 'clear-overlays-btn' || 
+        element.id === 'restart-btn' || 
+        element.id === 'joystick-calibrate-btn') {
+      return;
+    }
+    
+    // Skip minimap and UI
+    if (element.id === 'minimap' || 
+        element.id === 'hud' || 
+        element.id === 'joystick-debug') {
+      return;
+    }
+    
+    // Check for high z-index elements that aren't buttons
+    const style = window.getComputedStyle(element);
+    const zIndex = parseInt(style.zIndex);
+    if (zIndex > 900 && !element.tagName.toLowerCase().includes('button')) {
+      console.log(`Found potential overlay: ${element.id || 'unnamed element'} with z-index ${zIndex}`);
+      // If it's a blocking overlay, hide it
+      if (style.position === 'fixed' || style.position === 'absolute') {
+        element.style.display = 'none';
+      }
+    }
+  });
+
+  // Reset game state if it's stuck
+  gameRunning = true;
+  gameOver = false;
+  
+  // Reset potential time issues
+  lapStartTime = Date.now();
+  
+  // Ensure the car can move
+  car.speed = 0;
+  
+  // Update the debugging elements
+  const debugDiv = document.getElementById('debug-info');
+  if (debugDiv) {
+    debugDiv.textContent = `Game running: ${gameRunning}, Game over: ${gameOver}, Car speed: ${car.speed.toFixed(2)}`;
+  }
+  
+  console.log("All overlays cleared, game state reset");
+}
+
+// Function to aggressively remove all overlays by recreating the UI
+function forceRemoveAllOverlays() {
+  console.log("Force removing all overlays");
+  
+  // First, try normal clearing
+  clearAllOverlays();
+  
+  // Find and remove ALL overlay-like elements
+  const overlayElements = document.querySelectorAll('div[style*="position: fixed"], div[style*="position:fixed"], div[style*="position: absolute"], div[style*="position:absolute"]');
+  overlayElements.forEach(element => {
+    // Skip essential UI elements
+    if (element.id === 'debug-button' || 
+        element.id === 'clear-overlays-btn' || 
+        element.id === 'restart-btn' || 
+        element.id === 'minimap' || 
+        element.id === 'hud' || 
+        element.id === 'joystick-debug') {
+      return;
+    }
+    
+    console.log(`Removing overlay element: ${element.id || 'unnamed element'}`);
+    element.remove();
+  });
+  
+  // Clear all existing connect buttons
+  const existingButtons = document.querySelectorAll('button');
+  existingButtons.forEach(button => {
+    if (button.id !== 'debug-button' && 
+        button.id !== 'clear-overlays-btn' && 
+        button.id !== 'restart-btn') {
+      button.remove();
+    }
+  });
+  
+  // Reset critical game variables
+  gameRunning = true;
+  gameOver = false;
+  countdownActive = false;
+  
+  // Update car state
+  car.speed = 0;
+  
+  // Create clean HUD elements
+  recreateHUD();
+  
+  // Create clean debug info
+  const debugInfo = document.getElementById('debug-info');
+  if (debugInfo) {
+    debugInfo.textContent = `Game running: ${gameRunning}, Game over: ${gameOver}, Car speed: ${car.speed.toFixed(2)}`;
+  }
+  
+  // Recreate essential UI
+  // (We only keep minimal UI to avoid any conflicts)
+  
+  // Reset camera position
+  camera.position.set(0, 5, -10);
+  camera.lookAt(car.position);
+  
+  console.log("Aggressive overlay removal complete");
+  
+  // If controller is connected, make sure the game is ready to play
+  if (serialController && serialController.connected) {
+    console.log("Controller is connected, ensuring game is ready");
+    
+    // Reset game state
+    resetGame();
+  }
+}
+
+// Function to recreate the HUD elements
+function recreateHUD() {
+  // Remove existing HUD if any
+  const existingHud = document.getElementById('hud');
+  if (existingHud) existingHud.remove();
+  
+  // Create a fresh HUD
+  const hud = document.createElement('div');
+  hud.id = 'hud';
+  hud.style.position = 'absolute';
+  hud.style.top = '20px';
+  hud.style.right = '240px'; // Position next to minimap
+  hud.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+  hud.style.color = 'white';
+  hud.style.padding = '10px';
+  hud.style.borderRadius = '5px';
+  hud.style.fontFamily = 'Arial, sans-serif';
+  hud.style.zIndex = '100';
+  
+  hud.innerHTML = `
+    <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
+    <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
+    <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
+    <div id="speed-display" style="font-size: 16px; color: #66CCFF;">Speed: 0 km/h</div>
+  `;
+  
+  const gameContainer = document.getElementById('game-container');
+  if (gameContainer) {
+    gameContainer.appendChild(hud);
+  } else {
+    document.body.appendChild(hud);
+  }
+}
+
+// Add a clear overlay button 
+function createClearOverlayButton() {
+  // Remove existing button if any
+  const existingButton = document.getElementById('clear-overlays-btn');
+  if (existingButton) existingButton.remove();
+  
+  // Create a button to clear all overlays
+  const clearButton = document.createElement('button');
+  clearButton.id = 'clear-overlays-btn';
+  clearButton.innerText = 'FORCE RESET GAME';
+  clearButton.style.position = 'fixed';
+  clearButton.style.top = '10px';
+  clearButton.style.left = '50%';
+  clearButton.style.transform = 'translateX(-50%)';
+  clearButton.style.padding = '5px 10px';
+  clearButton.style.background = 'rgba(255, 0, 0, 0.8)';
+  clearButton.style.color = 'white';
+  clearButton.style.border = '2px solid white';
+  clearButton.style.borderRadius = '4px';
+  clearButton.style.fontSize = '14px';
+  clearButton.style.fontWeight = 'bold';
+  clearButton.style.cursor = 'pointer';
+  clearButton.style.zIndex = '9999'; // Extremely high z-index
+  
+  // Add hover effect
+  clearButton.onmouseover = () => {
+    clearButton.style.background = 'rgba(255, 50, 50, 0.9)';
+  };
+  clearButton.onmouseout = () => {
+    clearButton.style.background = 'rgba(255, 0, 0, 0.8)';
+  };
+  
+  // Add click handler
+  clearButton.onclick = () => {
+    // Use the aggressive overlay removal
+    forceRemoveAllOverlays();
+    
+    // Also restart the game
+    resetGame();
+    
+    // Notify the user
+    const notification = document.createElement('div');
+    notification.textContent = 'Game Force Reset Complete!';
+    notification.style.position = 'fixed';
+    notification.style.top = '50%';
+    notification.style.left = '50%';
+    notification.style.transform = 'translate(-50%, -50%)';
+    notification.style.padding = '15px 25px';
+    notification.style.background = 'rgba(0, 180, 0, 0.8)';
+    notification.style.color = 'white';
+    notification.style.borderRadius = '8px';
+    notification.style.fontSize = '18px';
+    notification.style.zIndex = '9999';
+    document.body.appendChild(notification);
+    
+    // Remove notification after 2 seconds
+    setTimeout(() => {
+      document.body.removeChild(notification);
+    }, 2000);
+  };
+  
+  // Ensure it's added directly to the body to avoid container issues
+  document.body.appendChild(clearButton);
+}
+
+// Function to completely reset the game
+function resetGame() {
+  // Clear all overlays
+  clearAllOverlays();
+  
+  // Reset game state
+  gameRunning = true;
+  gameOver = false;
+  currentLap = 0;
+  currentCheckpoint = 0;
+  car.speed = 0;
+  lapStartTime = Date.now();
+  
+  // Reset car position to start line
+  if (TRACK_POINTS.length > 0) {
+    car.position.copy(TRACK_POINTS[0]);
+    car.position.y = 0.5; // Car height off ground
+    
+    // Calculate initial direction to face along the track
+    if (TRACK_POINTS.length > 1) {
+      const nextPoint = TRACK_POINTS[1];
+      const direction = new THREE.Vector3().subVectors(nextPoint, TRACK_POINTS[0]).normalize();
+      car.direction.copy(direction);
+      
+      // Set rotation to face direction
+      const angle = Math.atan2(direction.x, direction.z);
+      car.rotation.y = angle;
+    }
+  }
+  
+  // Update car model position
+  if (car.model) {
+    car.model.position.copy(car.position);
+    car.model.rotation.y = car.rotation.y;
+  }
+  
+  // Update HUD
+  const lapCounter = document.getElementById('lap-counter');
+  if (lapCounter) lapCounter.textContent = `Lap: ${currentLap}/${MAX_LAPS}`;
+  
+  const timeDisplay = document.getElementById('time-display');
+  if (timeDisplay) timeDisplay.textContent = '00:00.000';
+  
+  const speedDisplay = document.getElementById('speed-display');
+  if (speedDisplay) speedDisplay.textContent = `Speed: 0 km/h`;
+  
+  console.log("Game completely reset");
+}
