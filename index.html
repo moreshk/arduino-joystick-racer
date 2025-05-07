@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3D Airplane Challenge</title>
+  <title>3D Car Racing Game</title>
   <style>
     body {
       margin: 0;
@@ -40,8 +40,9 @@
     
     #hud {
       position: absolute;
-      top: 20px;
+      top: 230px;
       right: 20px;
+      left: auto;
       background-color: rgba(0, 0, 0, 0.5);
       padding: 15px;
       border-radius: 5px;
@@ -67,6 +68,25 @@
     #lap-counter {
       font-size: 18px;
       color: #4cd137;
+    }
+    
+    #speed-display {
+      font-size: 18px;
+      color: #00d2ff;
+    }
+    
+    #wrong-way {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(255, 0, 0, 0.7);
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 24px;
+      font-weight: bold;
+      z-index: 150;
+      display: none;
     }
     
     #message-overlay {
@@ -116,6 +136,7 @@
       border-radius: 5px;
       z-index: 100;
       max-width: 300px;
+      transition: opacity 1s;
     }
     
     #tutorial h3 {
@@ -148,14 +169,19 @@
       <div class="hud-item">
         <div id="lap-counter">Lap: 0/3</div>
       </div>
+      <div class="hud-item">
+        <div id="speed-display">Speed: 0 km/h</div>
+      </div>
     </div>
+    
+    <div id="wrong-way">WRONG WAY!</div>
     
     <div id="tutorial">
       <h3>Controls:</h3>
-      <p>• Pull back to climb, push forward to dive</p>
-      <p>• Move left/right to bank and turn</p>
-      <p>• Button press for speed boost</p>
-      <p>• Fly through all hoops before time runs out!</p>
+      <p>• Push forward to accelerate</p>
+      <p>• Pull back to brake</p>
+      <p>• Move left/right to steer</p>
+      <p>• Collect stars and complete 3 laps!</p>
     </div>
     
     <div id="joystick-debug">Joystick not connected</div>

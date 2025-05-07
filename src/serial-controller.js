@@ -667,6 +667,13 @@ class SerialController {
   }
   
   /**
+   * Alias for calibrateJoystick() for compatibility
+   */
+  recalibrate() {
+    this.calibrateJoystick();
+  }
+  
+  /**
    * Check if Web Serial API is supported in the current browser
    * @returns {boolean} True if Web Serial API is supported
    */
