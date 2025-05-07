@@ -909,16 +909,13 @@ function updateCountdown() {
     const secondsRemaining = Math.ceil((COUNTDOWN_DURATION - elapsedTime) / 1000);
     countdownOverlay.textContent = secondsRemaining.toString();
     
-    // Play beep sound for each number
-    if (secondsRemaining < 4 && Math.ceil((COUNTDOWN_DURATION - (elapsedTime - 50)) / 1000) > secondsRemaining) {
-      playSound('star_collect'); // Reuse star sound for beep
-    }
+    // No sounds for countdown numbers
   } else {
     // Countdown complete, show GO and start the game
     countdownOverlay.textContent = 'GO!';
     
-    // Play start sound
-    playSound('lap_complete');
+    // Ensure no particles or explosion effects
+    clearAllParticles();
     
     // Remove countdown overlay after a short delay
     setTimeout(() => {
@@ -941,6 +938,7 @@ function handleControllerInput(data) {
   // Start the game if not already running when joystick is used
   if (!gameRunning) {
     startGame();
+    return; // Don't process input until the game actually starts
   }
   
   // Display controller data for debugging - show raw values
@@ -952,22 +950,19 @@ function handleControllerInput(data) {
   // This makes pushing away (positive pitch) accelerate and pulling back (negative pitch) brake/reverse
   // And makes pushing right (positive roll) turn right and pushing left (negative roll) turn left
   let adjustedPitch = -data.pitch; // Invert pitch so forward is positive, backward is negative
-  let adjustedRoll = data.roll;    // Keep roll as is, but we'll handle directions explicitly
+  let adjustedRoll = data.roll;    // Roll is already inverted in the serial controller
   
   // Apply deadzone to prevent drift
   const roll = Math.abs(adjustedRoll) > JOYSTICK_DEADZONE ? adjustedRoll : 0;
   const pitch = Math.abs(adjustedPitch) > JOYSTICK_DEADZONE ? adjustedPitch : 0;
   
-  // Steering - handle left and right separately to debug which direction works
-  if (roll > JOYSTICK_DEADZONE) {
-    // Turn right (positive roll) - decrease y rotation
-    car.rotation.y -= TURN_RATE * roll;
-    console.log("Turning RIGHT, roll:", roll);
-  } 
-  else if (roll < -JOYSTICK_DEADZONE) {
-    // Turn left (negative roll) - increase y rotation
-    car.rotation.y += TURN_RATE * Math.abs(roll); // Use positive value for left turns
-    console.log("Turning LEFT, roll:", roll);
+  // Steering - simplified logic that works for both directions
+  if (Math.abs(roll) > JOYSTICK_DEADZONE) {
+    // Steering now matches physical joystick movement:
+    // Positive roll = pushing joystick right = turn right (negative rotation)
+    // Negative roll = pushing joystick left = turn left (positive rotation)
+    car.rotation.y -= TURN_RATE * roll * 1.8; // Increased multiplier for responsiveness
+    console.log(`Turning ${roll > 0 ? 'RIGHT' : 'LEFT'}, roll:`, roll);
   }
   
   // Debugging output for forward/backward movement
@@ -1055,6 +1050,9 @@ function startGame() {
   car.speed = 0;
   lapStartTime = Date.now();
   
+  // Make sure to clear all particles at the start
+  clearAllParticles();
+  
   console.log("Game state:", { gameRunning, gameOver });
   
   // Reset car position to start line
@@ -1113,6 +1111,9 @@ function startGame() {
   
   // Start the timer
   lapStartTime = Date.now();
+  
+  // Clear all particles
+  clearAllParticles();
 }
 
 // Restart the game
@@ -1407,6 +1408,15 @@ function updateParticles() {
       scene.remove(particle);
       particlesToUpdate.splice(i, 1);
     }
+  }
+}
+
+// Helper function to clear all particles
+function clearAllParticles() {
+  // Remove all particles from scene
+  for (let i = particlesToUpdate.length - 1; i >= 0; i--) {
+    scene.remove(particlesToUpdate[i]);
+    particlesToUpdate.splice(i, 1);
   }
 }
 

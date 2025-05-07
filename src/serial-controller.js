@@ -24,9 +24,9 @@ class SerialController {
     this.roll = 0;  // Banking left/right
     this.pitch = 0; // Up/down
     
-    // Manual calibration offsets (can be adjusted if joystick has bias)
-    this.manualOffsetX = 0;
-    this.manualOffsetY = 0;
+    // Manual calibration offsets - initialize with defaults that work well
+    this.manualOffsetX = 187;  // Default value that works for most joysticks
+    this.manualOffsetY = 193;  // Default value that works for most joysticks
     
     // Callback function to process joystick data
     this.onJoystickData = null;
@@ -41,9 +41,9 @@ class SerialController {
     this.debugElement = null;
     this.showRawValues = true; // Shows raw values to help diagnose issues
 
-    // Deadzone values
-    this.deadzone = 0.15; // Reduced from 0.20 to allow more sensitivity
-
+    // Deadzone values - increased for better stability
+    this.deadzone = 0.20; // Increased from 0.15 for better stability
+    
     // Exponential curve strength (higher = more fine control in center, more response at edges)
     this.exponentialFactor = 1.6; // Reduced from 1.8 for more linear response
     
@@ -105,6 +105,12 @@ class SerialController {
             
             // Add calibration controls
             this.addCalibrateButton();
+            
+            // Auto-calibrate with default values that work well
+            // Wait a moment for initial data to come in
+            setTimeout(() => {
+              this.autoCalibrate();
+            }, 500);
         }
         
         return true;
@@ -122,6 +128,37 @@ class SerialController {
         
         // Rethrow the error
         throw error;
+    }
+  }
+  
+  /**
+   * Auto-calibrate with default values that work well for most joysticks
+   */
+  autoCalibrate() {
+    if (!this.connected) return;
+    
+    console.log("Auto-calibrating joystick with default values");
+    
+    // Use default calibration values that work well
+    this.manualOffsetX = 187;
+    this.manualOffsetY = 193;
+    
+    // Reset history arrays to avoid lingering values
+    this.rollHistory = [0, 0, 0];
+    this.pitchHistory = [0, 0, 0];
+    this.historyIndex = 0;
+    
+    if (this.debugElement) {
+      this.debugElement.textContent = `Joystick auto-calibrated with default values`;
+      this.debugElement.style.color = 'lime';
+      
+      // Reset to normal display after 3 seconds
+      setTimeout(() => {
+        if (this.connected) {
+          this.debugElement.textContent = `Roll: 0.00 | Pitch: 0.00 | Boost: OFF`;
+          this.debugElement.style.color = 'white';
+        }
+      }, 3000);
     }
   }
   
@@ -253,6 +290,7 @@ class SerialController {
     // Reset history arrays to avoid lingering values
     this.rollHistory = [0, 0, 0];
     this.pitchHistory = [0, 0, 0];
+    this.historyIndex = 0; // Reset the history index too
     
     if (this.debugElement) {
       this.debugElement.textContent = `Joystick calibrated! Offsets: X=${offsetX}, Y=${offsetY}`;
@@ -419,8 +457,10 @@ class SerialController {
           calibratedX = Math.max(0, Math.min(1023, calibratedX));
           calibratedY = Math.max(0, Math.min(1023, calibratedY));
           
-          // Calculate normalized values (-1 to 1)
-          let rawRoll = (calibratedX - 512) / 512;
+          // Calculate normalized values (-1 to 1) - ensure correct orientation
+          // Using consistent formula regardless of calibration:
+          // right = positive roll, left = negative roll
+          let rawRoll = ((calibratedX - 512) / 512); // Remove negative sign
           let rawPitch = (calibratedY - 512) / 512;
           
           // Apply deadzone - critical to eliminate drift
