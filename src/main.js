@@ -417,9 +417,12 @@ function createConnectButton() {
 
 // Setup keyboard controls for testing
 function setupKeyboardControls() {
+  // Track key down events
   window.addEventListener('keydown', (event) => {
-    // Respond to keyboard input even if game isn't running
+    // Store the key state
+    window.keyStates[event.key] = true;
     
+    // Respond to keyboard input even if game isn't running
     switch(event.key) {
       case 'ArrowUp':
         // Accelerate
@@ -457,6 +460,12 @@ function setupKeyboardControls() {
         });
         break;
     }
+  });
+  
+  // Track key up events
+  window.addEventListener('keyup', (event) => {
+    // Clear the key state when released
+    window.keyStates[event.key] = false;
   });
 }
 
@@ -660,288 +669,244 @@ function createEnvironment() {
   // No scenery is added - track and stars only
 }
 
-// Load car model with further improved appearance
+// Load car model with simplified realistic appearance
 function loadCarModel() {
-  // Create a detailed car made of multiple shapes
+  // Create a proper car with simple but recognizable components
   const carGroup = new THREE.Group();
   
-  // Car body - main chassis with more aerodynamic shape
-  const bodyGeometry = new THREE.BoxGeometry(4, 1.2, 8);
+  // Main body - simple race car shape
+  const bodyGeometry = new THREE.BoxGeometry(2.5, 0.6, 5.5);
   const bodyMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xE74C3C, // Bright red for main color
-    metalness: 0.9,
-    roughness: 0.1
+    color: 0xE30000, // Bright red
+    metalness: 0.7,
+    roughness: 0.2
   });
   const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-  body.position.y = 1.0;
+  body.position.y = 0.6;
   body.castShadow = true;
   carGroup.add(body);
   
-  // Car top/cabin with improved aerodynamic shape
-  const cabinPoints = [];
-  cabinPoints.push(new THREE.Vector2(0, 0));
-  cabinPoints.push(new THREE.Vector2(1.75, 0));
-  cabinPoints.push(new THREE.Vector2(1.5, 0.8));
-  cabinPoints.push(new THREE.Vector2(0.5, 1));
-  cabinPoints.push(new THREE.Vector2(0, 1));
-  
-  const cabinShape = new THREE.Shape(cabinPoints);
-  const extrudeSettings = {
-    steps: 1,
-    depth: 4,
-    bevelEnabled: true,
-    bevelThickness: 0.1,
-    bevelSize: 0.1,
-    bevelOffset: 0,
-    bevelSegments: 3
-  };
-  
-  const cabinGeometry = new THREE.ExtrudeGeometry(cabinShape, extrudeSettings);
+  // Upper body/cabin - low profile with single piece
+  const cabinGeometry = new THREE.BoxGeometry(2.0, 0.5, 2.8);
   const cabinMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0x2c3e50, // Dark blue-gray
-    metalness: 0.8,
-    roughness: 0.2
+    color: 0x111111, // Dark/black
+    metalness: 0.5,
+    roughness: 0.5
   });
-  
   const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
-  cabin.position.set(-1.75, 1.6, -2);
+  cabin.position.set(0, 1.1, 0); // Centered on car, slightly forward
   cabin.castShadow = true;
   carGroup.add(cabin);
   
-  // Windshield with improved shape
-  const windshieldGeometry = new THREE.PlaneGeometry(3.3, 1);
-  const windshieldMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0x3498db,
-    transparent: true,
-    opacity: 0.7,
-    side: THREE.DoubleSide,
-    metalness: 0.9,
-    roughness: 0.1
-  });
-  const windshield = new THREE.Mesh(windshieldGeometry, windshieldMaterial);
-  windshield.position.set(0, 2.1, 1.5);
-  windshield.rotation.x = Math.PI / 4;
-  carGroup.add(windshield);
-  
-  // Improved car hood with racing stripe and air intake
-  const hoodGeometry = new THREE.BoxGeometry(3.8, 0.1, 3);
-  const hoodMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xE74C3C, // Match body color
-    metalness: 0.8,
-    roughness: 0.2
-  });
-  const hood = new THREE.Mesh(hoodGeometry, hoodMaterial);
-  hood.position.set(0, 1.7, 2.5);
+  // Front hood - sloped
+  const hoodGeometry = new THREE.BoxGeometry(2.4, 0.4, 1.8);
+  const hood = new THREE.Mesh(hoodGeometry, bodyMaterial);
+  hood.position.set(0, 0.85, 1.8); // In front of cabin
   hood.castShadow = true;
   carGroup.add(hood);
   
-  // Air intake on hood
-  const intakeGeometry = new THREE.BoxGeometry(1.5, 0.2, 1.5);
-  const intakeMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0x1a1a1a, // Black
+  // Rear section
+  const rearGeometry = new THREE.BoxGeometry(2.4, 0.5, 1.2);
+  const rear = new THREE.Mesh(rearGeometry, bodyMaterial);
+  rear.position.set(0, 0.9, -2.0); // Behind cabin
+  rear.castShadow = true;
+  carGroup.add(rear);
+  
+  // Windshield - flat blue glass
+  const windshieldGeometry = new THREE.PlaneGeometry(1.8, 0.8);
+  const glassMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x84CFFF,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide
+  });
+  const windshield = new THREE.Mesh(windshieldGeometry, glassMaterial);
+  windshield.position.set(0, 1.3, 1.0);
+  windshield.rotation.x = Math.PI / 6; // Angled windshield
+  carGroup.add(windshield);
+  
+  // Front bumper
+  const bumperGeometry = new THREE.BoxGeometry(2.4, 0.5, 0.4);
+  const bumperMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x333333,
     metalness: 0.5,
-    roughness: 0.8
+    roughness: 0.5
   });
-  const intake = new THREE.Mesh(intakeGeometry, intakeMaterial);
-  intake.position.set(0, 1.8, 2.5);
-  carGroup.add(intake);
+  const frontBumper = new THREE.Mesh(bumperGeometry, bumperMaterial);
+  frontBumper.position.set(0, 0.4, 2.7);
+  carGroup.add(frontBumper);
   
-  // Racing stripes
-  const stripeGeometry = new THREE.BoxGeometry(0.5, 0.11, 7.5);
-  const stripeMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xffffff, // White
-    metalness: 0.8,
-    roughness: 0.2
-  });
-  const stripe = new THREE.Mesh(stripeGeometry, stripeMaterial);
-  stripe.position.set(0, 1.76, 0);
-  carGroup.add(stripe);
+  // Rear bumper
+  const rearBumper = new THREE.Mesh(bumperGeometry, bumperMaterial);
+  rearBumper.position.set(0, 0.4, -2.7);
+  carGroup.add(rearBumper);
   
-  // Add a second racing stripe
-  const stripe2 = new THREE.Mesh(stripeGeometry, stripeMaterial);
-  stripe2.position.set(1.2, 1.76, 0);
-  carGroup.add(stripe2);
-  
-  const stripe3 = new THREE.Mesh(stripeGeometry, stripeMaterial);
-  stripe3.position.set(-1.2, 1.76, 0);
-  carGroup.add(stripe3);
-  
-  // Add spoiler
-  const spoilerStandGeometry = new THREE.BoxGeometry(0.2, 1, 0.2);
-  const spoilerMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0x1a1a1a, // Black
-    metalness: 0.8,
-    roughness: 0.2
-  });
-  
-  const spoilerStandLeft = new THREE.Mesh(spoilerStandGeometry, spoilerMaterial);
-  spoilerStandLeft.position.set(1.5, 2.0, -3.8);
-  carGroup.add(spoilerStandLeft);
-  
-  const spoilerStandRight = new THREE.Mesh(spoilerStandGeometry, spoilerMaterial);
-  spoilerStandRight.position.set(-1.5, 2.0, -3.8);
-  carGroup.add(spoilerStandRight);
-  
-  const spoilerWingGeometry = new THREE.BoxGeometry(4, 0.2, 1);
-  const spoilerWingMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xE74C3C, // Match body
-    metalness: 0.8,
-    roughness: 0.2
-  });
-  const spoilerWing = new THREE.Mesh(spoilerWingGeometry, spoilerWingMaterial);
-  spoilerWing.position.set(0, 2.6, -3.8);
-  carGroup.add(spoilerWing);
-  
-  // Improved wheels with rims and details
-  const createWheel = (x, z) => {
-    const wheelGroup = new THREE.Group();
-    
-    // Tire with better tread pattern
-    const tireGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16);
-    const tireMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x1a1a1a, // Nearly black
-      roughness: 0.9
-    });
-    const tire = new THREE.Mesh(tireGeometry, tireMaterial);
-    tire.rotation.z = Math.PI / 2;
-    tire.castShadow = true;
-    wheelGroup.add(tire);
-    
-    // Add tire tread pattern
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const treadGeometry = new THREE.BoxGeometry(0.1, 0.52, 0.2);
-      const treadMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x333333,
-        roughness: 0.9
-      });
-      const tread = new THREE.Mesh(treadGeometry, treadMaterial);
-      tread.position.set(0, 0, 0);
-      tread.rotation.z = Math.PI / 2;
-      tread.rotation.y = angle;
-      tread.translateZ(0.8);
-      wheelGroup.add(tread);
-    }
-    
-    // Improved rim with spokes
-    const rimGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.52, 16);
-    const rimMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0xCCCCCC, // Lighter silver
-      metalness: 1.0,
-      roughness: 0.1
-    });
-    const rim = new THREE.Mesh(rimGeometry, rimMaterial);
-    rim.rotation.z = Math.PI / 2;
-    wheelGroup.add(rim);
-    
-    // Wheel spokes
-    for (let i = 0; i < 5; i++) {
-      const angle = (i / 5) * Math.PI * 2;
-      const spokeGeometry = new THREE.BoxGeometry(0.05, 0.54, 0.4);
-      const spokeMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0xd3d3d3, // Silver
-        metalness: 1.0,
-        roughness: 0.1
-      });
-      const spoke = new THREE.Mesh(spokeGeometry, spokeMaterial);
-      spoke.position.set(0, 0, 0);
-      spoke.rotation.z = Math.PI / 2;
-      spoke.rotation.y = angle;
-      spoke.translateZ(0.25);
-      wheelGroup.add(spoke);
-    }
-    
-    // Hub cap
-    const hubGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.53, 16);
-    const hubMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0xE74C3C, // Match body color
-      metalness: 0.9,
-      roughness: 0.1
-    });
-    const hub = new THREE.Mesh(hubGeometry, hubMaterial);
-    hub.rotation.z = Math.PI / 2;
-    wheelGroup.add(hub);
-    
-    // Position wheel
-    wheelGroup.position.set(x, 0.8, z);
-    
-    return wheelGroup;
-  };
-  
-  // Add all wheels
-  const wheelFL = createWheel(-2, 2.5);
-  carGroup.add(wheelFL);
-  
-  const wheelFR = createWheel(2, 2.5);
-  carGroup.add(wheelFR);
-  
-  const wheelRL = createWheel(-2, -2.5);
-  carGroup.add(wheelRL);
-  
-  const wheelRR = createWheel(2, -2.5);
-  carGroup.add(wheelRR);
-  
-  // Brighter headlights
-  const headlightGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+  // Headlights - simple flat circles
+  const headlightGeometry = new THREE.CircleGeometry(0.3, 16);
   const headlightMaterial = new THREE.MeshStandardMaterial({ 
     color: 0xFFFFFF,
-    emissive: 0xFFFF00,
-    emissiveIntensity: 0.8
+    emissive: 0xFFFF99,
+    emissiveIntensity: 0.5,
+    side: THREE.DoubleSide
   });
   
   // Left headlight
   const headlightL = new THREE.Mesh(headlightGeometry, headlightMaterial);
-  headlightL.position.set(-1.5, 1.0, 4);
+  headlightL.position.set(-0.8, 0.7, 2.75);
+  headlightL.rotation.y = Math.PI; // Face forward
   carGroup.add(headlightL);
   
   // Right headlight
   const headlightR = new THREE.Mesh(headlightGeometry, headlightMaterial);
-  headlightR.position.set(1.5, 1.0, 4);
+  headlightR.position.set(0.8, 0.7, 2.75);
+  headlightR.rotation.y = Math.PI; // Face forward
   carGroup.add(headlightR);
   
-  // Add headlight glow
-  const headlightGlowGeometry = new THREE.SphereGeometry(0.5, 16, 16);
-  const headlightGlowMaterial = new THREE.MeshBasicMaterial({ 
-    color: 0xFFFF99,
-    transparent: true,
-    opacity: 0.5
-  });
-  
-  const headlightGlowL = new THREE.Mesh(headlightGlowGeometry, headlightGlowMaterial);
-  headlightGlowL.position.set(-1.5, 1.0, 4.1);
-  carGroup.add(headlightGlowL);
-  
-  const headlightGlowR = new THREE.Mesh(headlightGlowGeometry, headlightGlowMaterial);
-  headlightGlowR.position.set(1.5, 1.0, 4.1);
-  carGroup.add(headlightGlowR);
-  
-  // Taillights
-  const taillightGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+  // Taillights - simple red rectangles
+  const taillightGeometry = new THREE.PlaneGeometry(0.5, 0.3);
   const taillightMaterial = new THREE.MeshStandardMaterial({ 
     color: 0xFF0000,
     emissive: 0xFF0000,
-    emissiveIntensity: 0.8
+    emissiveIntensity: 0.8,
+    side: THREE.DoubleSide
   });
   
   // Left taillight
   const taillightL = new THREE.Mesh(taillightGeometry, taillightMaterial);
-  taillightL.position.set(-1.5, 1.0, -4);
+  taillightL.position.set(-0.8, 0.7, -2.75);
   carGroup.add(taillightL);
   
   // Right taillight
   const taillightR = new THREE.Mesh(taillightGeometry, taillightMaterial);
-  taillightR.position.set(1.5, 1.0, -4);
+  taillightR.position.set(0.8, 0.7, -2.75);
   carGroup.add(taillightR);
   
-  // License plate
-  const plateGeometry = new THREE.BoxGeometry(2, 0.5, 0.05);
-  const plateMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xFFFFFF,
-    roughness: 0.5
-  });
-  const plate = new THREE.Mesh(plateGeometry, plateMaterial);
-  plate.position.set(0, 0.8, -4.03);
-  carGroup.add(plate);
+  // Simple spoiler on back
+  const spoilerStandGeometry = new THREE.BoxGeometry(0.1, 0.4, 0.1);
+  const spoilerMaterial = cabinMaterial;
+  
+  // Left spoiler stand
+  const spoilerStandL = new THREE.Mesh(spoilerStandGeometry, spoilerMaterial);
+  spoilerStandL.position.set(-1.0, 1.0, -2.3);
+  carGroup.add(spoilerStandL);
+  
+  // Right spoiler stand
+  const spoilerStandR = new THREE.Mesh(spoilerStandGeometry, spoilerMaterial);
+  spoilerStandR.position.set(1.0, 1.0, -2.3);
+  carGroup.add(spoilerStandR);
+  
+  // Spoiler wing
+  const spoilerWingGeometry = new THREE.BoxGeometry(2.2, 0.1, 0.5);
+  const spoilerWing = new THREE.Mesh(spoilerWingGeometry, spoilerMaterial);
+  spoilerWing.position.set(0, 1.2, -2.3);
+  carGroup.add(spoilerWing);
+  
+  // Create wheels with clearly visible rotation
+  const createWheel = (x, z, isFront) => {
+    const wheelGroup = new THREE.Group();
+    
+    // Tire - cylinder oriented for proper rotation along car's movement
+    const tireGeometry = new THREE.CylinderGeometry(0.7, 0.7, 0.5, 24);
+    const tireMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x222222, // Black tire
+      roughness: 0.9
+    });
+    const tire = new THREE.Mesh(tireGeometry, tireMaterial);
+    
+    // Rotate tire to align with car's X-axis (across the width of the car)
+    tire.rotation.z = Math.PI / 2;
+    wheelGroup.add(tire);
+    
+    // Create rim with same orientation
+    const rimGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.51, 24);
+    const rimMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xCCCCCC, // Silver
+      metalness: 0.8,
+      roughness: 0.2
+    });
+    const rim = new THREE.Mesh(rimGeometry, rimMaterial);
+    rim.rotation.z = Math.PI / 2; // Same orientation as tire
+    wheelGroup.add(rim);
+    
+    // Add clearly visible spokes to show rotation
+    const spokeCount = 5;
+    for (let i = 0; i < spokeCount; i++) {
+      const angle = (i / spokeCount) * Math.PI * 2;
+      
+      // Create a spoke that goes from center to rim
+      const spokeGeometry = new THREE.BoxGeometry(0.4, 0.08, 0.08);
+      const spokeMaterial = new THREE.MeshStandardMaterial({
+        color: 0x333333,
+        metalness: 0.7,
+        roughness: 0.3
+      });
+      
+      const spoke = new THREE.Mesh(spokeGeometry, spokeMaterial);
+      
+      // Position the spoke to connect center to rim
+      spoke.position.set(0, 0, 0);
+      spoke.rotation.z = Math.PI / 2; // Align with wheel orientation
+      spoke.rotation.x = angle; // Distribute spokes evenly around wheel
+      
+      // Shift spoke to be halfway from center to edge
+      spoke.translateY(0.25);
+      
+      rim.add(spoke); // Add to rim so it rotates with it
+    }
+    
+    // Create center hub cap with contrasting color
+    const hubCapGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.52, 16);
+    const hubCapMaterial = new THREE.MeshStandardMaterial({
+      color: 0xE60000, // Bright red to match car and be visible
+      metalness: 0.9,
+      roughness: 0.1
+    });
+    const hubCap = new THREE.Mesh(hubCapGeometry, hubCapMaterial);
+    hubCap.rotation.z = Math.PI / 2; // Same orientation as wheel
+    wheelGroup.add(hubCap);
+    
+    // Add a logo to the hub cap end for extra visibility when rotating
+    const logoGeometry = new THREE.BoxGeometry(0.1, 0.02, 0.1);
+    const logoMaterial = new THREE.MeshStandardMaterial({
+      color: 0xFFFFFF,
+      metalness: 0.9,
+      roughness: 0.1
+    });
+    
+    // Logo on left side
+    const logoLeft = new THREE.Mesh(logoGeometry, logoMaterial);
+    logoLeft.position.set(0.26, 0, 0);
+    logoLeft.rotation.y = Math.PI / 2;
+    wheelGroup.add(logoLeft);
+    
+    // Logo on right side
+    const logoRight = new THREE.Mesh(logoGeometry, logoMaterial);
+    logoRight.position.set(-0.26, 0, 0);
+    logoRight.rotation.y = Math.PI / 2;
+    wheelGroup.add(logoRight);
+    
+    // Position the wheel
+    wheelGroup.position.set(x, 0.7, z);
+    
+    // Add user data for later identification
+    wheelGroup.userData.isWheel = true;
+    wheelGroup.userData.isFrontWheel = isFront;
+    
+    return wheelGroup;
+  };
+  
+  // Add wheels with proper placement
+  const wheelFL = createWheel(-1.3, 1.8, true);  // Front Left
+  carGroup.add(wheelFL);
+  
+  const wheelFR = createWheel(1.3, 1.8, true);   // Front Right
+  carGroup.add(wheelFR);
+  
+  const wheelRL = createWheel(-1.3, -1.8, false); // Rear Left
+  carGroup.add(wheelRL);
+  
+  const wheelRR = createWheel(1.3, -1.8, false);  // Rear Right
+  carGroup.add(wheelRR);
   
   // Set up car
   car.model = carGroup;
@@ -969,7 +934,7 @@ function loadAudio() {
 // Play sound
 function playSound(soundName) {
   if (audioElements[soundName]) {
-    audioElements[soundName].currentTime = 0;
+    audioElements.engine.currentTime = 0;
     audioElements[soundName].play().catch(e => console.log('Error playing sound:', e));
   }
 }
@@ -1214,7 +1179,12 @@ function restartGame() {
   startGame();
 }
 
-// Update car physics with improved wheel rotation
+// Store values for tracking car movement
+let previousRotationY = 0;
+let isTurningLeft = false;
+let isTurningRight = false;
+
+// Update car physics with improved wheel rotation and steering
 function updateCarPhysics() {
   // Don't check gameRunning here - we want physics to work for testing
   if (gameOver) return;
@@ -1274,23 +1244,64 @@ function updateCarPhysics() {
   car.model.position.copy(car.position);
   car.model.rotation.y = car.rotation.y;
   
-  // Rotate wheels based on speed
+  // Enhanced wheel rotation with increased speed for visibility
   if (car.model) {
-    // Wheels are now at indices 3, 4, 5, 6 in the improved car model
-    const wheelRotationSpeed = car.speed / 10;
-    
-    // For the improved model, wheels are complete groups
-    for (let i = 3; i <= 6; i++) {
-      if (car.model.children[i]) {
-        // Rotate all wheels correctly based on direction
-        if (car.model.children[i].children.length > 0) {
-          car.model.children[i].children.forEach(part => {
-            // Only rotate around proper axis (z-axis of wheel group which is x in world)
-            part.rotation.x += wheelRotationSpeed;
-          });
+    // Find and update each wheel
+    car.model.traverse((child) => {
+      if (child.userData && child.userData.isWheel) {
+        // Calculate wheel rotation speed for forward/backward motion
+        const wheelRadius = 0.7;
+        const wheelCircumference = 2 * Math.PI * wheelRadius;
+        const rotationPerUnit = (1 / wheelCircumference) * (2 * Math.PI);
+        const rotationAmount = car.speed * rotationPerUnit * 0.2;
+        
+        // Rotate wheel around X-axis for forward/backward motion
+        if (car.speed > 0) {
+          child.rotation.x += rotationAmount;
+        } else if (car.speed < 0) {
+          child.rotation.x -= rotationAmount;
+        }
+        
+        // IMPROVED FRONT WHEEL STEERING - more natural and stable
+        if (child.userData.isFrontWheel) {
+          // Determine the steering input from keyboard or controller
+          let steeringInput = 0;
+          
+          // Check keyboard input
+          if (window.keyStates && window.keyStates['ArrowLeft']) {
+            steeringInput = 1; // Left
+          } else if (window.keyStates && window.keyStates['ArrowRight']) {
+            steeringInput = -1; // Right (negative for correct turning direction)
+          }
+          
+          // Check controller input if available (overrides keyboard)
+          if (serialController && serialController.inputState) {
+            if (serialController.inputState.turnAmount !== undefined) {
+              // Use the raw turn amount for proportional steering
+              steeringInput = -serialController.inputState.turnAmount;
+            }
+          }
+          
+          // Apply gentle damping to wheel rotation to prevent wobbling
+          // This adds "stiffness" to the steering
+          if (!child.userData.currentSteerAngle) {
+            child.userData.currentSteerAngle = 0;
+          }
+          
+          // Calculate target angle - max 0.4 radians (about 23 degrees)
+          const maxSteeringAngle = 0.4;
+          const targetAngle = steeringInput * maxSteeringAngle;
+          
+          // Apply smooth damping for natural steering feel
+          // This gradually moves the wheels toward the target angle
+          const steeringSpeed = 0.15; // Lower is smoother but slower response
+          child.userData.currentSteerAngle += (targetAngle - child.userData.currentSteerAngle) * steeringSpeed;
+          
+          // Apply the calculated steering angle
+          child.rotation.y = child.userData.currentSteerAngle;
         }
       }
-    }
+    });
   }
   
   // Update camera position to follow car
@@ -2179,7 +2190,7 @@ function createGameUI() {
   }
 }
 
-// Handle controller input with much less steering sensitivity
+// Add input state tracking to the joystick controller
 function handleControllerInput(data) {
   if (gameOver) return; // Only check for gameOver, not gameRunning
   
@@ -2198,15 +2209,24 @@ function handleControllerInput(data) {
     debugElement.textContent = `Roll: ${data.roll.toFixed(2)}, Pitch: ${data.pitch.toFixed(2)}, Boost: ${data.boost ? 'ON' : 'OFF'}`;
   }
   
-  // The problem is that the joystick orientation might be different than expected
-  // This makes pushing away (positive pitch) accelerate and pulling back (negative pitch) brake/reverse
-  // And makes pushing right (positive roll) turn right and pushing left (negative roll) turn left
-  let adjustedPitch = -data.pitch; // Invert pitch so forward is positive, backward is negative
-  let adjustedRoll = data.roll;    // Make sure roll is correctly mapped for turning
+  // Important: Invert pitch so pushing forward moves the car forward
+  // This fixes the direction issue
+  const adjustedPitch = -data.pitch;
+  const adjustedRoll = data.roll;
   
   // Apply deadzone to prevent drift
   const roll = Math.abs(adjustedRoll) > JOYSTICK_DEADZONE ? adjustedRoll : 0;
   const pitch = Math.abs(adjustedPitch) > JOYSTICK_DEADZONE ? adjustedPitch : 0;
+  
+  // Track turning state for wheel steering
+  if (!serialController.inputState) {
+    serialController.inputState = { turnLeft: false, turnRight: false, turnAmount: 0 };
+  }
+  
+  // Update turning state based on roll value
+  serialController.inputState.turnLeft = roll < -JOYSTICK_DEADZONE;
+  serialController.inputState.turnRight = roll > JOYSTICK_DEADZONE;
+  serialController.inputState.turnAmount = roll; // Store the raw turn amount
   
   // Steering - ensure both left and right turning works properly
   if (Math.abs(roll) > JOYSTICK_DEADZONE) {
@@ -2223,7 +2243,7 @@ function handleControllerInput(data) {
   
   // Acceleration and braking/reversing - handle separately for clarity
   if (pitch > JOYSTICK_DEADZONE) {
-    // Forward movement (positive adjusted pitch - pushing joystick forward, away from pins)
+    // Forward movement (pushing joystick forward, away from pins)
     car.speed += ACCELERATION * pitch * 0.15; // Increased from 0.1 to 0.15 for faster acceleration
     
     if (car.speed > MAX_SPEED) {
@@ -2238,7 +2258,7 @@ function handleControllerInput(data) {
     console.log("FORWARD, pitch:", pitch, "speed:", car.speed);
   }
   else if (pitch < -JOYSTICK_DEADZONE) {
-    // Negative adjusted pitch - pulling joystick back, toward pins
+    // Negative pitch - pulling joystick back, toward pins
     if (car.speed > 0) {
       // Braking
       car.speed += BRAKING * pitch * 0.2; // Since pitch is negative, this reduces speed
