@@ -737,67 +737,95 @@ function createStars() {
     const starGroup = new THREE.Group();
     starGroup.position.copy(position);
     
-    // Create star center
-    const coreGeometry = new THREE.SphereGeometry(0.8, 16, 16);
-    const coreMaterial = new THREE.MeshStandardMaterial({
-      color: 0xFFFF00,
-      emissive: 0xFFFF00,
-      emissiveIntensity: 1.0,
-      metalness: 1.0,
-      roughness: 0.3
-    });
+    // Make stars face the player by always rotating towards camera (billboard effect)
+    // This will be updated in the animation loop
+    starGroup.lookAtCamera = true;
     
-    const core = new THREE.Mesh(coreGeometry, coreMaterial);
-    starGroup.add(core);
+    // Create Mario Kart style 5-pointed star using a custom geometry
+    const starShape = new THREE.Shape();
     
-    // Create star points/spikes
-    const spikeCount = 5;
-    for (let j = 0; j < spikeCount; j++) {
-      const angle = (j / spikeCount) * Math.PI * 2;
+    // Parameters for a nice looking star
+    const outerRadius = 1.2; // Slightly smaller
+    const innerRadius = 0.5; // Slightly smaller
+    const numPoints = 5;
+    
+    // Create a star shape with precise points
+    for (let i = 0; i < numPoints * 2; i++) {
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const angle = (i / (numPoints * 2)) * Math.PI * 2;
       
-      const spikeGeometry = new THREE.ConeGeometry(0.4, 2.0, 4);
-      const spikeMaterial = new THREE.MeshStandardMaterial({
-        color: 0xFFFF00,
-        emissive: 0xFFFF00,
-        emissiveIntensity: 0.8,
-        metalness: 0.8,
-        roughness: 0.2
-      });
+      const x = Math.sin(angle) * radius;
+      const y = Math.cos(angle) * radius;
       
-      const spike = new THREE.Mesh(spikeGeometry, spikeMaterial);
-      spike.position.set(
-        Math.sin(angle) * 1.0,
-        Math.cos(angle) * 1.0,
-        0
-      );
-      spike.rotation.z = angle;
-      spike.rotation.y = Math.PI / 2;
-      
-      starGroup.add(spike);
+      if (i === 0) {
+        starShape.moveTo(x, y);
+      } else {
+        starShape.lineTo(x, y);
+      }
     }
     
-    // Add glow effect (sprite)
-    const glowSprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: null, // No texture needed
-        color: 0xFFFF99,
-        transparent: true,
-        opacity: 0.6,
-        blending: THREE.AdditiveBlending
-      })
-    );
-    glowSprite.scale.set(5, 5, 1);
-    starGroup.add(glowSprite);
+    starShape.closePath();
+    
+    // Create geometry from the shape
+    const starGeometry = new THREE.ShapeGeometry(starShape);
+    
+    // Create material with bright yellow color and glow
+    const starMaterial = new THREE.MeshStandardMaterial({
+      color: 0xFFD700, // Gold color
+      emissive: 0xFFAA00, // Orange-yellow glow
+      emissiveIntensity: 0.8,
+      metalness: 0.6,
+      roughness: 0.2,
+      side: THREE.DoubleSide
+    });
+    
+    // Create the star mesh
+    const starMesh = new THREE.Mesh(starGeometry, starMaterial);
+    
+    // Add rotation animation
+    starMesh.rotationSpeed = 0.01 + Math.random() * 0.02; // Random rotation speed
+    
+    // Set initial rotation to make the star perpendicular to ground
+    starMesh.rotation.x = Math.PI / 2; // This makes it perpendicular to ground
+    
+    // Add to group
+    starGroup.add(starMesh);
     
     // Add star to scene and stars array
     scene.add(starGroup);
-    starGroup.rotation.y = Math.random() * Math.PI * 2; // Random rotation
+    
+    // Create a small glow effect
+    const glowSize = 0.5;
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xFFFF00,
+      transparent: true,
+      opacity: 0.4,
+      side: THREE.DoubleSide
+    });
+    
+    // Create a small glowing ring around the star
+    const glowRingGeometry = new THREE.RingGeometry(outerRadius + 0.1, outerRadius + 0.3, 16);
+    const glowRing = new THREE.Mesh(glowRingGeometry, glowMaterial);
+    glowRing.rotation.x = Math.PI / 2; // Match the star's orientation
+    starGroup.add(glowRing);
+    
+    // Apply a small hover animation
+    starGroup.hoverSpeed = 0.005 + Math.random() * 0.005;
+    starGroup.hoverHeight = 0.3 + Math.random() * 0.2;
+    starGroup.hoverOffset = Math.random() * Math.PI * 2;
+    starGroup.baseY = position.y;
     
     // Store reference
     stars.push({
       object: starGroup,
       position: position.clone(),
-      collected: false
+      collected: false,
+      rotationSpeed: starMesh.rotationSpeed,
+      hoverSpeed: starGroup.hoverSpeed,
+      hoverHeight: starGroup.hoverHeight,
+      hoverOffset: starGroup.hoverOffset,
+      baseY: starGroup.baseY,
+      mesh: starMesh
     });
   }
 }
@@ -1409,6 +1437,24 @@ function updateParticles() {
       particlesToUpdate.splice(i, 1);
     }
   }
+  
+  // Update star animations
+  stars.forEach(star => {
+    if (!star.collected && star.object) {
+      // Apply rotation to the star mesh
+      if (star.mesh) {
+        star.mesh.rotation.y += star.rotationSpeed; // Rotate on Y axis instead of Z
+      }
+      
+      // Apply hovering effect to the star group
+      const time = Date.now() * 0.001;
+      const hoverY = Math.sin(time * star.hoverSpeed * 5 + star.hoverOffset) * star.hoverHeight;
+      star.object.position.y = star.baseY + hoverY;
+      
+      // Simple approach to keep stars perpendicular to the ground
+      // The initial rotation is already set correctly
+    }
+  });
 }
 
 // Helper function to clear all particles
