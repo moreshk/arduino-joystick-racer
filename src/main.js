@@ -31,6 +31,7 @@ let targetTime = 60000; // 1 minute in milliseconds
 let isWrongWay = false;
 let wrongWayTimestamp = 0;
 let stars = [];
+let starsCollected = 0; // Track the number of stars collected
 let checkpoints = [];
 let levelIndex = 0;
 let countdownActive = false;
@@ -128,6 +129,12 @@ const mountainPositions = []; // Store mountain positions for minimap
 async function init() {
   console.log("Initializing game...");
   
+  // Remove any existing debug button that might be on the page
+  const existingDebugButton = document.getElementById('debug-button');
+  if (existingDebugButton) {
+    existingDebugButton.remove();
+  }
+  
   // Create game container if it doesn't exist
   if (!document.getElementById('game-container')) {
     const gameContainer = document.createElement('div');
@@ -181,8 +188,8 @@ async function init() {
     // Create the connect button that attempts auto-connect first
     createConnectButton();
     
-    // Add debug button to help troubleshoot
-    createDebugButton();
+    // Remove debug button creation
+    // createDebugButton();
     
     // Set up joystick data callback
     serialController.setJoystickDataCallback(handleControllerInput);
@@ -1107,6 +1114,7 @@ function startGame() {
   currentCheckpoint = 0;
   car.speed = 0;
   lapStartTime = Date.now();
+  starsCollected = 0; // Reset stars collected
   
   // Make sure to clear all particles at the start
   clearAllParticles();
@@ -1164,6 +1172,7 @@ function startGame() {
   document.getElementById('lap-counter').textContent = `Lap: ${currentLap}/${MAX_LAPS}`;
   document.getElementById('time-display').textContent = '00:00.000';
   document.getElementById('target-time').textContent = `Target: ${formatTime(targetTime)}`;
+  updateStarCounter(); // Update star counter
   
   // Hide any messages
   document.getElementById('message-overlay').style.display = 'none';
@@ -1480,6 +1489,12 @@ function checkStarCollisions() {
         star.collected = true;
         star.object.visible = false;
         
+        // Increment the stars collected counter
+        starsCollected++;
+        
+        // Update the star counter in the HUD
+        updateStarCounter();
+        
         // Play sound
         playSound('star_collect');
         
@@ -1612,7 +1627,7 @@ function completeLap() {
     lapStartTime = Date.now();
     
     // Show lap message
-    showTempMessage(`Lap ${currentLap} Complete!`, `Time: ${formatTime(lapTime)}`, 2000);
+    showTempMessage(`Lap ${currentLap} Complete!`, `Time: ${formatTime(lapTime)}`, 2000, true);
   }
 }
 
@@ -1659,18 +1674,40 @@ function endRace(success) {
 }
 
 // Show a message overlay
-function showMessage(title, message) {
+function showMessage(title, message, hideRestartButton = false) {
   document.getElementById('message-title').textContent = title;
   document.getElementById('message-content').textContent = message;
   document.getElementById('message-overlay').style.display = 'block';
+  
+  // Hide restart button if requested
+  const restartBtn = document.getElementById('restart-btn');
+  if (restartBtn) {
+    restartBtn.style.display = hideRestartButton ? 'none' : 'block';
+  }
 }
 
 // Show a temporary message
-function showTempMessage(title, message, duration) {
-  showMessage(title, message);
+function showTempMessage(title, message, duration, positionHigher = false) {
+  // Position the message higher if requested
+  const messageOverlay = document.getElementById('message-overlay');
+  if (messageOverlay && positionHigher) {
+    messageOverlay.style.alignItems = 'flex-start';
+    messageOverlay.style.paddingTop = '100px';
+  } else if (messageOverlay) {
+    messageOverlay.style.alignItems = 'center';
+    messageOverlay.style.paddingTop = '0';
+  }
+  
+  showMessage(title, message, positionHigher);
   
   setTimeout(() => {
     document.getElementById('message-overlay').style.display = 'none';
+    
+    // Reset message position after hiding
+    if (messageOverlay && positionHigher) {
+      messageOverlay.style.alignItems = 'center';
+      messageOverlay.style.paddingTop = '0';
+    }
   }, duration);
 }
 
@@ -1769,7 +1806,7 @@ function checkCollisions() {
   return false;
 }
 
-// Create a minimap with improved background and visibility
+// Create minimap with improved background and visibility
 function createMinimap() {
   // Create minimap container
   const minimapContainer = document.createElement('div');
@@ -1779,8 +1816,8 @@ function createMinimap() {
   minimapContainer.style.right = '20px';
   minimapContainer.style.width = '200px';
   minimapContainer.style.height = '200px';
-  minimapContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.5)'; // Translucent white background
-  minimapContainer.style.border = '2px solid rgba(0, 0, 0, 0.8)'; // Darker border
+  minimapContainer.style.backgroundColor = 'rgba(255, 255, 255, 0)'; // Fully transparent background
+  minimapContainer.style.border = 'none'; // Remove border
   minimapContainer.style.borderRadius = '5px';
   minimapContainer.style.zIndex = '100';
   
@@ -1832,9 +1869,9 @@ function updateMinimap() {
   // Clear minimap
   ctx.clearRect(0, 0, 200, 200);
   
-  // Set translucent background
-  ctx.fillStyle = 'rgba(120, 180, 120, 0.9)'; // Darker green with less transparency 
-  ctx.fillRect(0, 0, 200, 200);
+  // Set fully transparent background - don't fill with any color
+  // ctx.fillStyle = 'rgba(120, 180, 120, 0.7)'; // Removed the background fill
+  // ctx.fillRect(0, 0, 200, 200);
   
   // Scale and center factors - increased scale for more zoom
   const scale = 0.18; // Reduced to fit larger track
@@ -1960,17 +1997,12 @@ function updateMinimap() {
   
   ctx.restore();
   
-  // Draw minimap border
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(0, 0, 200, 200);
-  
   // Add text label
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.fillRect(0, 0, 70, 20);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '12px Arial';
-  ctx.fillText('Track Map', 10, 14);
+  // ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  // ctx.fillRect(0, 0, 70, 20);
+  // ctx.fillStyle = '#FFFFFF';
+  // ctx.font = '12px Arial';
+  // ctx.fillText('Track Map', 10, 14);
 }
 
 // Convert world coordinates to minimap coordinates
@@ -2090,10 +2122,58 @@ function createGameUI() {
       <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
       <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
       <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
+
     `;
     
     document.getElementById('game-container').appendChild(hud);
   }
+  
+  // Create star counter at the top of the screen
+  if (!document.getElementById('top-star-counter')) {
+    const topStarCounter = document.createElement('div');
+    topStarCounter.id = 'top-star-counter';
+    topStarCounter.style.position = 'absolute';
+    topStarCounter.style.top = '20px';
+    topStarCounter.style.left = '50%';
+    topStarCounter.style.transform = 'translateX(-50%)';
+    topStarCounter.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    topStarCounter.style.color = '#FFFF66';
+    topStarCounter.style.padding = '10px 20px';
+    topStarCounter.style.borderRadius = '30px';
+    topStarCounter.style.fontFamily = 'Arial, sans-serif';
+    topStarCounter.style.fontSize = '24px';
+    topStarCounter.style.zIndex = '100';
+    topStarCounter.style.display = 'flex';
+    topStarCounter.style.alignItems = 'center';
+    topStarCounter.style.justifyContent = 'center';
+    
+    // Create star icon
+    const starIcon = document.createElement('div');
+    starIcon.style.width = '24px';
+    starIcon.style.height = '24px';
+    starIcon.style.marginRight = '10px';
+    starIcon.style.position = 'relative';
+    starIcon.innerHTML = '★'; // Star symbol
+    starIcon.style.color = '#FFD700';
+    starIcon.style.fontSize = '28px';
+    starIcon.style.lineHeight = '24px';
+    starIcon.style.display = 'flex';
+    starIcon.style.alignItems = 'center';
+    starIcon.style.justifyContent = 'center';
+    starIcon.style.top = '-2px'; // Adjust vertical position
+    
+    // Add star counter text
+    const starCountText = document.createElement('div');
+    starCountText.id = 'top-star-count';
+    starCountText.textContent = `0/${STAR_COUNT}`;
+    
+    topStarCounter.appendChild(starIcon);
+    topStarCounter.appendChild(starCountText);
+    document.getElementById('game-container').appendChild(topStarCounter);
+  }
+  
+  // Update star counter when created
+  updateStarCounter();
   
   // Create speedometer if it doesn't exist
   if (!document.getElementById('speedometer-container')) {
@@ -2250,6 +2330,7 @@ function recreateHUD() {
     <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
     <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
     <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
+  
   `;
   
   const gameContainer = document.getElementById('game-container');
@@ -2258,6 +2339,58 @@ function recreateHUD() {
   } else {
     document.body.appendChild(hud);
   }
+  
+  // Recreate top star counter if needed
+  if (!document.getElementById('top-star-counter')) {
+    const topStarCounter = document.createElement('div');
+    topStarCounter.id = 'top-star-counter';
+    topStarCounter.style.position = 'absolute';
+    topStarCounter.style.top = '20px';
+    topStarCounter.style.left = '50%';
+    topStarCounter.style.transform = 'translateX(-50%)';
+    topStarCounter.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    topStarCounter.style.color = '#FFFF66';
+    topStarCounter.style.padding = '10px 20px';
+    topStarCounter.style.borderRadius = '30px';
+    topStarCounter.style.fontFamily = 'Arial, sans-serif';
+    topStarCounter.style.fontSize = '24px';
+    topStarCounter.style.zIndex = '100';
+    topStarCounter.style.display = 'flex';
+    topStarCounter.style.alignItems = 'center';
+    topStarCounter.style.justifyContent = 'center';
+    
+    // Create star icon
+    const starIcon = document.createElement('div');
+    starIcon.style.width = '24px';
+    starIcon.style.height = '24px';
+    starIcon.style.marginRight = '10px';
+    starIcon.style.position = 'relative';
+    starIcon.innerHTML = '★'; // Star symbol
+    starIcon.style.color = '#FFD700';
+    starIcon.style.fontSize = '28px';
+    starIcon.style.lineHeight = '24px';
+    starIcon.style.display = 'flex';
+    starIcon.style.alignItems = 'center';
+    starIcon.style.justifyContent = 'center';
+    starIcon.style.top = '-2px'; // Adjust vertical position
+    
+    // Add star counter text
+    const starCountText = document.createElement('div');
+    starCountText.id = 'top-star-count';
+    starCountText.textContent = `0/${STAR_COUNT}`;
+    
+    topStarCounter.appendChild(starIcon);
+    topStarCounter.appendChild(starCountText);
+    
+    if (gameContainer) {
+      gameContainer.appendChild(topStarCounter);
+    } else {
+      document.body.appendChild(topStarCounter);
+    }
+  }
+  
+  // Update star counter
+  updateStarCounter();
   
   // Recreate speedometer if needed
   if (!document.getElementById('speedometer-container')) {
@@ -2290,6 +2423,7 @@ function resetGame() {
   currentCheckpoint = 0;
   car.speed = 0;
   lapStartTime = Date.now();
+  starsCollected = 0; // Reset stars collected counter
   
   // Reset car position to start line
   if (TRACK_POINTS.length > 0) {
@@ -2320,6 +2454,9 @@ function resetGame() {
   
   const timeDisplay = document.getElementById('time-display');
   if (timeDisplay) timeDisplay.textContent = '00:00.000';
+  
+  // Update star counter
+  updateStarCounter();
   
   // Update speedometer
   updateSpeedometer(0);
@@ -2753,8 +2890,7 @@ function clearAllOverlays() {
   // Check for any other element with high z-index
   document.querySelectorAll('[style*="z-index"]').forEach(element => {
     // Skip buttons we want to keep
-    if (element.id === 'debug-button' || 
-        element.id === 'clear-overlays-btn' || 
+    if (element.id === 'clear-overlays-btn' || 
         element.id === 'restart-btn' || 
         element.id === 'joystick-calibrate-btn') {
       return;
@@ -2810,8 +2946,7 @@ function forceRemoveAllOverlays() {
   const overlayElements = document.querySelectorAll('div[style*="position: fixed"], div[style*="position:fixed"], div[style*="position: absolute"], div[style*="position:absolute"]');
   overlayElements.forEach(element => {
     // Skip essential UI elements
-    if (element.id === 'debug-button' || 
-        element.id === 'clear-overlays-btn' || 
+    if (element.id === 'clear-overlays-btn' || 
         element.id === 'restart-btn' || 
         element.id === 'minimap' || 
         element.id === 'hud' || 
@@ -2827,8 +2962,7 @@ function forceRemoveAllOverlays() {
   // Clear all existing connect buttons
   const existingButtons = document.querySelectorAll('button');
   existingButtons.forEach(button => {
-    if (button.id !== 'debug-button' && 
-        button.id !== 'clear-overlays-btn' && 
+    if (button.id !== 'clear-overlays-btn' && 
         button.id !== 'restart-btn') {
       button.remove();
     }
@@ -2866,5 +3000,18 @@ function forceRemoveAllOverlays() {
     
     // Reset game state
     resetGame();
+  }
+}
+
+// Update the star counter in the HUD
+function updateStarCounter() {
+  const starCounter = document.getElementById('star-counter');
+  if (starCounter) {
+    starCounter.textContent = `${starsCollected}/${STAR_COUNT}`;
+  }
+  
+  const topStarCount = document.getElementById('top-star-count');
+  if (topStarCount) {
+    topStarCount.textContent = `${starsCollected}/${STAR_COUNT}`;
   }
 }
