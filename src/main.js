@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import SerialController from './serial-controller.js';
 
 // Game constants
-const MAX_SPEED = 240; // km/h - increased from 50
+const MAX_SPEED = 15; // km/h - set to 15 as requested
 const ACCELERATION = 10.0; // Increased from 4.0 for faster acceleration
 const BRAKING = 6.0; // Unchanged
 const FRICTION = 0.85; // Unchanged
@@ -1137,7 +1137,7 @@ function startGame() {
     audioElements.engine.play().catch(e => console.log('Error playing engine sound:', e));
   }
   
-  // Add debug info to display
+  // Add debug info to display but hide it
   const debugDiv = document.createElement('div');
   debugDiv.id = 'debug-info';
   debugDiv.style.position = 'absolute';
@@ -1149,6 +1149,7 @@ function startGame() {
   debugDiv.style.borderRadius = '5px';
   debugDiv.style.fontFamily = 'monospace';
   debugDiv.style.zIndex = '1000';
+  debugDiv.style.display = 'none'; // Hide debug info
   debugDiv.textContent = 'Game running: ' + gameRunning;
   
   // Remove any existing debug div
@@ -1327,8 +1328,31 @@ function updateCarPhysics() {
     audioElements.engine.playbackRate = pitch;
   }
   
-  // Update speed display
-  document.getElementById('speed-display').textContent = `Speed: ${Math.round(Math.abs(car.speed))} km/h${car.speed < 0 ? ' (R)' : ''}`;
+  // Update speedometer
+  updateSpeedometer(car.speed);
+}
+
+// Update speedometer gauge
+function updateSpeedometer(speed) {
+  const speedValue = Math.abs(speed);
+  const dial = document.getElementById('speedometer-dial');
+  const value = document.getElementById('speedometer-value');
+  
+  if (dial && value) {
+    // Calculate width percentage
+    const percentage = (speedValue / MAX_SPEED) * 100;
+    
+    // Update dial width
+    dial.style.width = `${percentage}%`;
+    
+    // Update speed value
+    value.textContent = Math.round(speedValue).toString();
+    
+    // Add '(R)' indicator for reverse
+    if (speed < 0) {
+      value.textContent += ' (R)';
+    }
+  }
 }
 
 // Check if car is on track
@@ -1670,7 +1694,7 @@ function onWindowResize() {
 function gameLoop() {
   requestAnimationFrame(gameLoop);
   
-  // Update debug info
+  // Update debug info (still update it but it's hidden)
   const debugDiv = document.getElementById('debug-info');
   if (debugDiv) {
     debugDiv.textContent = `Game running: ${gameRunning}, Game over: ${gameOver}, Car speed: ${car.speed.toFixed(2)}`;
@@ -2066,10 +2090,23 @@ function createGameUI() {
       <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
       <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
       <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
-      <div id="speed-display" style="font-size: 16px; color: #66CCFF;">Speed: 0 km/h</div>
     `;
     
     document.getElementById('game-container').appendChild(hud);
+  }
+  
+  // Create speedometer if it doesn't exist
+  if (!document.getElementById('speedometer-container')) {
+    const speedometer = document.createElement('div');
+    speedometer.id = 'speedometer-container';
+    speedometer.innerHTML = `
+      <div id="speedometer-gauge">
+        <div id="speedometer-dial"></div>
+        <div id="speedometer-value">0</div>
+        <div id="speedometer-max">MAX: 15</div>
+      </div>
+    `;
+    document.getElementById('game-container').appendChild(speedometer);
   }
   
   // Create restart button
@@ -2188,6 +2225,171 @@ function createGameUI() {
     
     document.getElementById('game-container').appendChild(wrongWay);
   }
+}
+
+// Function to recreate the HUD elements
+function recreateHUD() {
+  // Remove existing HUD if any
+  const existingHud = document.getElementById('hud');
+  if (existingHud) existingHud.remove();
+  
+  // Create a fresh HUD
+  const hud = document.createElement('div');
+  hud.id = 'hud';
+  hud.style.position = 'absolute';
+  hud.style.top = '20px';
+  hud.style.right = '240px'; // Position next to minimap
+  hud.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+  hud.style.color = 'white';
+  hud.style.padding = '10px';
+  hud.style.borderRadius = '5px';
+  hud.style.fontFamily = 'Arial, sans-serif';
+  hud.style.zIndex = '100';
+  
+  hud.innerHTML = `
+    <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
+    <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
+    <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
+  `;
+  
+  const gameContainer = document.getElementById('game-container');
+  if (gameContainer) {
+    gameContainer.appendChild(hud);
+  } else {
+    document.body.appendChild(hud);
+  }
+  
+  // Recreate speedometer if needed
+  if (!document.getElementById('speedometer-container')) {
+    const speedometer = document.createElement('div');
+    speedometer.id = 'speedometer-container';
+    speedometer.innerHTML = `
+      <div id="speedometer-gauge">
+        <div id="speedometer-dial"></div>
+        <div id="speedometer-value">0</div>
+        <div id="speedometer-max">MAX: 15</div>
+      </div>
+    `;
+    if (gameContainer) {
+      gameContainer.appendChild(speedometer);
+    } else {
+      document.body.appendChild(speedometer);
+    }
+  }
+}
+
+// Function to completely reset the game
+function resetGame() {
+  // Clear all overlays
+  clearAllOverlays();
+  
+  // Reset game state
+  gameRunning = true;
+  gameOver = false;
+  currentLap = 0;
+  currentCheckpoint = 0;
+  car.speed = 0;
+  lapStartTime = Date.now();
+  
+  // Reset car position to start line
+  if (TRACK_POINTS.length > 0) {
+    car.position.copy(TRACK_POINTS[0]);
+    car.position.y = 0.5; // Car height off ground
+    
+    // Calculate initial direction to face along the track
+    if (TRACK_POINTS.length > 1) {
+      const nextPoint = TRACK_POINTS[1];
+      const direction = new THREE.Vector3().subVectors(nextPoint, TRACK_POINTS[0]).normalize();
+      car.direction.copy(direction);
+      
+      // Set rotation to face direction
+      const angle = Math.atan2(direction.x, direction.z);
+      car.rotation.y = angle;
+    }
+  }
+  
+  // Update car model position
+  if (car.model) {
+    car.model.position.copy(car.position);
+    car.model.rotation.y = car.rotation.y;
+  }
+  
+  // Update HUD
+  const lapCounter = document.getElementById('lap-counter');
+  if (lapCounter) lapCounter.textContent = `Lap: ${currentLap}/${MAX_LAPS}`;
+  
+  const timeDisplay = document.getElementById('time-display');
+  if (timeDisplay) timeDisplay.textContent = '00:00.000';
+  
+  // Update speedometer
+  updateSpeedometer(0);
+  
+  console.log("Game completely reset");
+}
+
+// Add a clear overlay button 
+function createClearOverlayButton() {
+  // Remove existing button if any
+  const existingButton = document.getElementById('clear-overlays-btn');
+  if (existingButton) existingButton.remove();
+  
+  // Create a button to clear all overlays
+  const clearButton = document.createElement('button');
+  clearButton.id = 'clear-overlays-btn';
+  clearButton.innerText = 'FORCE RESET GAME';
+  clearButton.style.position = 'fixed';
+  clearButton.style.top = '10px';
+  clearButton.style.left = '50%';
+  clearButton.style.transform = 'translateX(-50%)';
+  clearButton.style.padding = '5px 10px';
+  clearButton.style.background = 'rgba(255, 0, 0, 0.8)';
+  clearButton.style.color = 'white';
+  clearButton.style.border = '2px solid white';
+  clearButton.style.borderRadius = '4px';
+  clearButton.style.fontSize = '14px';
+  clearButton.style.fontWeight = 'bold';
+  clearButton.style.cursor = 'pointer';
+  clearButton.style.zIndex = '9999'; // Extremely high z-index
+  
+  // Add hover effect
+  clearButton.onmouseover = () => {
+    clearButton.style.background = 'rgba(255, 50, 50, 0.9)';
+  };
+  clearButton.onmouseout = () => {
+    clearButton.style.background = 'rgba(255, 0, 0, 0.8)';
+  };
+  
+  // Add click handler
+  clearButton.onclick = () => {
+    // Use the aggressive overlay removal
+    forceRemoveAllOverlays();
+    
+    // Also restart the game
+    resetGame();
+    
+    // Notify the user
+    const notification = document.createElement('div');
+    notification.textContent = 'Game Force Reset Complete!';
+    notification.style.position = 'fixed';
+    notification.style.top = '50%';
+    notification.style.left = '50%';
+    notification.style.transform = 'translate(-50%, -50%)';
+    notification.style.padding = '15px 25px';
+    notification.style.background = 'rgba(0, 180, 0, 0.8)';
+    notification.style.color = 'white';
+    notification.style.borderRadius = '8px';
+    notification.style.fontSize = '18px';
+    notification.style.zIndex = '9999';
+    document.body.appendChild(notification);
+    
+    // Remove notification after 2 seconds
+    setTimeout(() => {
+      document.body.removeChild(notification);
+    }, 2000);
+  };
+  
+  // Ensure it's added directly to the body to avoid container issues
+  document.body.appendChild(clearButton);
 }
 
 // Add input state tracking to the joystick controller
@@ -2316,10 +2518,11 @@ window.addEventListener('load', init);
 function animate() {
   requestAnimationFrame(animate);
   
-  // Update debug info
+  // Update debug info but keep it hidden
   const debugDiv = document.getElementById('debug-info');
   if (debugDiv) {
     debugDiv.textContent = `Game running: ${gameRunning}, Game over: ${gameOver}, Car speed: ${car.speed.toFixed(2)}`;
+    debugDiv.style.display = 'none'; // Keep it hidden
   }
   
   // Hide joystick debug if playing game (only show during setup)
@@ -2560,7 +2763,8 @@ function clearAllOverlays() {
     // Skip minimap and UI
     if (element.id === 'minimap' || 
         element.id === 'hud' || 
-        element.id === 'joystick-debug') {
+        element.id === 'joystick-debug' ||
+        element.id === 'speedometer-container') {
       return;
     }
     
@@ -2611,7 +2815,8 @@ function forceRemoveAllOverlays() {
         element.id === 'restart-btn' || 
         element.id === 'minimap' || 
         element.id === 'hud' || 
-        element.id === 'joystick-debug') {
+        element.id === 'joystick-debug' ||
+        element.id === 'speedometer-container') {
       return;
     }
     
@@ -2662,152 +2867,4 @@ function forceRemoveAllOverlays() {
     // Reset game state
     resetGame();
   }
-}
-
-// Function to recreate the HUD elements
-function recreateHUD() {
-  // Remove existing HUD if any
-  const existingHud = document.getElementById('hud');
-  if (existingHud) existingHud.remove();
-  
-  // Create a fresh HUD
-  const hud = document.createElement('div');
-  hud.id = 'hud';
-  hud.style.position = 'absolute';
-  hud.style.top = '20px';
-  hud.style.right = '240px'; // Position next to minimap
-  hud.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-  hud.style.color = 'white';
-  hud.style.padding = '10px';
-  hud.style.borderRadius = '5px';
-  hud.style.fontFamily = 'Arial, sans-serif';
-  hud.style.zIndex = '100';
-  
-  hud.innerHTML = `
-    <div id="time-display" style="font-size: 24px; color: #FFCC00;">00:00.000</div>
-    <div id="target-time" style="font-size: 16px; color: #FF6666;">Target: 01:00.000</div>
-    <div id="lap-counter" style="font-size: 16px; color: #66FF66;">Lap: 0/3</div>
-    <div id="speed-display" style="font-size: 16px; color: #66CCFF;">Speed: 0 km/h</div>
-  `;
-  
-  const gameContainer = document.getElementById('game-container');
-  if (gameContainer) {
-    gameContainer.appendChild(hud);
-  } else {
-    document.body.appendChild(hud);
-  }
-}
-
-// Add a clear overlay button 
-function createClearOverlayButton() {
-  // Remove existing button if any
-  const existingButton = document.getElementById('clear-overlays-btn');
-  if (existingButton) existingButton.remove();
-  
-  // Create a button to clear all overlays
-  const clearButton = document.createElement('button');
-  clearButton.id = 'clear-overlays-btn';
-  clearButton.innerText = 'FORCE RESET GAME';
-  clearButton.style.position = 'fixed';
-  clearButton.style.top = '10px';
-  clearButton.style.left = '50%';
-  clearButton.style.transform = 'translateX(-50%)';
-  clearButton.style.padding = '5px 10px';
-  clearButton.style.background = 'rgba(255, 0, 0, 0.8)';
-  clearButton.style.color = 'white';
-  clearButton.style.border = '2px solid white';
-  clearButton.style.borderRadius = '4px';
-  clearButton.style.fontSize = '14px';
-  clearButton.style.fontWeight = 'bold';
-  clearButton.style.cursor = 'pointer';
-  clearButton.style.zIndex = '9999'; // Extremely high z-index
-  
-  // Add hover effect
-  clearButton.onmouseover = () => {
-    clearButton.style.background = 'rgba(255, 50, 50, 0.9)';
-  };
-  clearButton.onmouseout = () => {
-    clearButton.style.background = 'rgba(255, 0, 0, 0.8)';
-  };
-  
-  // Add click handler
-  clearButton.onclick = () => {
-    // Use the aggressive overlay removal
-    forceRemoveAllOverlays();
-    
-    // Also restart the game
-    resetGame();
-    
-    // Notify the user
-    const notification = document.createElement('div');
-    notification.textContent = 'Game Force Reset Complete!';
-    notification.style.position = 'fixed';
-    notification.style.top = '50%';
-    notification.style.left = '50%';
-    notification.style.transform = 'translate(-50%, -50%)';
-    notification.style.padding = '15px 25px';
-    notification.style.background = 'rgba(0, 180, 0, 0.8)';
-    notification.style.color = 'white';
-    notification.style.borderRadius = '8px';
-    notification.style.fontSize = '18px';
-    notification.style.zIndex = '9999';
-    document.body.appendChild(notification);
-    
-    // Remove notification after 2 seconds
-    setTimeout(() => {
-      document.body.removeChild(notification);
-    }, 2000);
-  };
-  
-  // Ensure it's added directly to the body to avoid container issues
-  document.body.appendChild(clearButton);
-}
-
-// Function to completely reset the game
-function resetGame() {
-  // Clear all overlays
-  clearAllOverlays();
-  
-  // Reset game state
-  gameRunning = true;
-  gameOver = false;
-  currentLap = 0;
-  currentCheckpoint = 0;
-  car.speed = 0;
-  lapStartTime = Date.now();
-  
-  // Reset car position to start line
-  if (TRACK_POINTS.length > 0) {
-    car.position.copy(TRACK_POINTS[0]);
-    car.position.y = 0.5; // Car height off ground
-    
-    // Calculate initial direction to face along the track
-    if (TRACK_POINTS.length > 1) {
-      const nextPoint = TRACK_POINTS[1];
-      const direction = new THREE.Vector3().subVectors(nextPoint, TRACK_POINTS[0]).normalize();
-      car.direction.copy(direction);
-      
-      // Set rotation to face direction
-      const angle = Math.atan2(direction.x, direction.z);
-      car.rotation.y = angle;
-    }
-  }
-  
-  // Update car model position
-  if (car.model) {
-    car.model.position.copy(car.position);
-    car.model.rotation.y = car.rotation.y;
-  }
-  
-  // Update HUD
-  const lapCounter = document.getElementById('lap-counter');
-  if (lapCounter) lapCounter.textContent = `Lap: ${currentLap}/${MAX_LAPS}`;
-  
-  const timeDisplay = document.getElementById('time-display');
-  if (timeDisplay) timeDisplay.textContent = '00:00.000';
-  
-  const speedDisplay = document.getElementById('speed-display');
-  if (speedDisplay) speedDisplay.textContent = `Speed: 0 km/h`;
-  
-  console.log("Game completely reset");
 }
