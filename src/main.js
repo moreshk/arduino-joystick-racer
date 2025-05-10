@@ -11,7 +11,7 @@ const FRICTION = 0.85; // Unchanged
 const OFF_TRACK_FRICTION = 0.80; // Unchanged
 const TURN_RATE = 0.03; // Unchanged - current turning speed is good
 const STAR_COUNT = 150;
-const MAX_LAPS = 3;
+const MAX_LAPS = 1;
 const TRACK_WIDTH = 40; // Unchanged
 const TRACK_POINTS = [];
 const CHECKPOINT_COUNT = 8;
@@ -1186,7 +1186,74 @@ function startGame() {
 
 // Restart the game
 function restartGame() {
+  // Just restart the current level
   startGame();
+}
+
+// Start the next level
+function startNextLevel() {
+  console.log("Starting next level with level index:", levelIndex);
+  
+  // Make sure gameRunning is set to true
+  gameRunning = true;
+  gameOver = false;
+  
+  // Reset lap and checkpoint
+  currentLap = 0;
+  currentCheckpoint = 0;
+  car.speed = 0;
+  starsCollected = 0;
+  
+  // Clear all particles
+  clearAllParticles();
+  
+  // Hide any message overlays first
+  const messageOverlay = document.getElementById('message-overlay');
+  if (messageOverlay) {
+    messageOverlay.style.display = 'none';
+  }
+  
+  // Create new track, stars, and checkpoints for the current levelIndex
+  createRaceTrack();
+  createStars();
+  createCheckpoints();
+  
+  // Reset car position to start line
+  if (TRACK_POINTS.length > 0) {
+    car.position.copy(TRACK_POINTS[0]);
+    car.position.y = 0.5;
+    
+    // Calculate initial direction to face along the track
+    if (TRACK_POINTS.length > 1) {
+      const nextPoint = TRACK_POINTS[1];
+      const direction = new THREE.Vector3().subVectors(nextPoint, TRACK_POINTS[0]).normalize();
+      car.direction.copy(direction);
+      
+      // Set rotation to face direction
+      const angle = Math.atan2(direction.x, direction.z);
+      car.rotation.y = angle;
+    }
+  }
+  
+  // Start the timer
+  lapStartTime = Date.now();
+  
+  // Update HUD
+  document.getElementById('lap-counter').textContent = `Lap: ${currentLap}/${MAX_LAPS}`;
+  document.getElementById('time-display').textContent = '00:00.000';
+  document.getElementById('target-time').textContent = `Target: ${formatTime(targetTime)}`;
+  updateStarCounter();
+  
+  // Start engine sound
+  if (audioElements.engine) {
+    audioElements.engine.currentTime = 0;
+    audioElements.engine.play().catch(e => console.log('Error playing engine sound:', e));
+  }
+  
+  // Show level indicator after the message overlay is hidden
+  setTimeout(() => {
+    showTempMessage(`Level ${levelIndex + 1}`, "Get ready!", 2000, true);
+  }, 100);
 }
 
 // Store values for tracking car movement
@@ -1652,24 +1719,44 @@ function endRace(success) {
     if (levelIndex < trackLevels.length - 1) {
       message += " Ready for the next level?";
       document.getElementById('restart-btn').textContent = "Next Level";
-      
       // Set up for next level
       levelIndex++;
     } else {
       message += " You've completed all levels!";
       document.getElementById('restart-btn').textContent = "Play Again";
-      
       // Reset to first level
       levelIndex = 0;
     }
-    
+    // Always re-attach the click handler after setting the text
+    const restartBtn = document.getElementById('restart-btn');
+    if (restartBtn) {
+      restartBtn.onclick = (event) => {
+        event.stopPropagation();
+        if (restartBtn.textContent === "Next Level") {
+          startNextLevel();
+        } else {
+          restartGame();
+        }
+      };
+    }
     showMessage("Victory!", message);
   } else {
     // Failed to beat target time
     playSound('fail');
-    
     showMessage("Time's Up!", "You didn't beat the target time. Try again!");
     document.getElementById('restart-btn').textContent = "Retry";
+    // Always re-attach the click handler after setting the text
+    const restartBtn = document.getElementById('restart-btn');
+    if (restartBtn) {
+      restartBtn.onclick = (event) => {
+        event.stopPropagation();
+        if (restartBtn.textContent === "Next Level") {
+          startNextLevel();
+        } else {
+          restartGame();
+        }
+      };
+    }
   }
 }
 
@@ -1679,10 +1766,15 @@ function showMessage(title, message, hideRestartButton = false) {
   document.getElementById('message-content').textContent = message;
   document.getElementById('message-overlay').style.display = 'block';
   
-  // Hide restart button if requested
+  // Get the restart button
   const restartBtn = document.getElementById('restart-btn');
   if (restartBtn) {
-    restartBtn.style.display = hideRestartButton ? 'none' : 'block';
+    // Control visibility based on parameter
+    restartBtn.style.display = hideRestartButton ? 'none' : 'inline-block';
+    
+    // Make sure it's visible and in front
+    restartBtn.style.zIndex = '1100';
+    restartBtn.style.position = 'relative';
   }
 }
 
@@ -2189,37 +2281,8 @@ function createGameUI() {
     document.getElementById('game-container').appendChild(speedometer);
   }
   
-  // Create restart button
-  if (!document.getElementById('restart-btn')) {
-    const restartBtn = document.createElement('button');
-    restartBtn.id = 'restart-btn';
-    restartBtn.innerText = 'Restart Game';
-    restartBtn.style.position = 'fixed';
-    restartBtn.style.bottom = '10px';
-    restartBtn.style.left = '10px';
-    restartBtn.style.padding = '8px 12px';
-    restartBtn.style.background = 'rgba(0, 0, 0, 0.7)';
-    restartBtn.style.color = 'white';
-    restartBtn.style.border = '1px solid white';
-    restartBtn.style.borderRadius = '4px';
-    restartBtn.style.cursor = 'pointer';
-    restartBtn.style.zIndex = '1000';
-    
-    // Add hover effect
-    restartBtn.onmouseover = () => {
-      restartBtn.style.background = 'rgba(50, 50, 50, 0.7)';
-    };
-    restartBtn.onmouseout = () => {
-      restartBtn.style.background = 'rgba(0, 0, 0, 0.7)';
-    };
-    
-    // Add click event
-    restartBtn.onclick = () => {
-      restartGame();
-    };
-    
-    document.body.appendChild(restartBtn);
-  }
+  // Create restart button - we no longer need this as it's included in the message overlay
+  // We've already added the restart button to the message box
   
   // Add countdown overlay if it doesn't exist, but keep it hidden until needed
   if (!document.getElementById('countdown-overlay')) {
@@ -2278,8 +2341,43 @@ function createGameUI() {
     messageContent.style.fontSize = '18px';
     messageContent.style.marginBottom = '20px';
     
+    // Remove any existing restart button to avoid duplicates
+    const oldBtn = document.getElementById('restart-btn');
+    if (oldBtn && oldBtn.parentNode) {
+      oldBtn.parentNode.removeChild(oldBtn);
+    }
+    // Create the restart button and add it to the message box
+    const restartBtn = document.createElement('button');
+    restartBtn.id = 'restart-btn';
+    restartBtn.innerText = 'Restart Game';
+    restartBtn.style.padding = '10px 20px';
+    restartBtn.style.backgroundColor = '#2196F3';
+    restartBtn.style.color = 'white';
+    restartBtn.style.border = 'none';
+    restartBtn.style.borderRadius = '5px';
+    restartBtn.style.cursor = 'pointer';
+    restartBtn.style.fontSize = '16px';
+    restartBtn.style.display = 'inline-block'; // Ensure it's visible
+    // Add hover effect
+    restartBtn.onmouseover = () => {
+      restartBtn.style.backgroundColor = '#0b7dda';
+    };
+    restartBtn.onmouseout = () => {
+      restartBtn.style.backgroundColor = '#2196F3';
+    };
+    // Add click handler for the restart button
+    restartBtn.onclick = (event) => {
+      event.stopPropagation();
+      console.log("Restart button clicked with text:", restartBtn.textContent, "levelIndex:", levelIndex);
+      if (restartBtn.textContent === "Next Level") {
+        startNextLevel();
+      } else {
+        restartGame();
+      }
+    };
     messageBox.appendChild(messageTitle);
     messageBox.appendChild(messageContent);
+    messageBox.appendChild(restartBtn);
     messageOverlay.appendChild(messageBox);
     
     document.getElementById('game-container').appendChild(messageOverlay);
